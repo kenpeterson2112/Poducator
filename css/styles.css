@@ -1,0 +1,328 @@
+/**
+ * styles.css — all styling for the student app.
+ *
+ * One deliberate choice worth naming: the checkpoint panel and the source
+ * confirmation panel share a visual language (.panel). Both are the same
+ * gesture — the lesson pausing to check something with the student before it
+ * commits — and they should feel like the same thing happening twice, not two
+ * unrelated interruptions.
+ */
+
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #16202b;
+  --ink-soft: #5b6875;
+  --line: #dfe4ea;
+  --accent: #2f6f5e;
+  --accent-soft: #e6f0ed;
+  --warn: #b4531f;
+  --warn-soft: #fdf0e6;
+  --host-a: #2f6f5e;
+  --host-b: #4a5fa8;
+  --radius: 10px;
+  --measure: 44rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12181f;
+    --surface: #1b232c;
+    --ink: #e8edf2;
+    --ink-soft: #9aa7b4;
+    --line: #2c3742;
+    --accent: #6cbfa6;
+    --accent-soft: #1e2f2a;
+    --warn: #e0955f;
+    --warn-soft: #2e2419;
+    --host-a: #6cbfa6;
+    --host-b: #8fa2e0;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.app-header {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem 0.5rem;
+}
+.app-header__title {
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+}
+.app-header__tagline {
+  margin: 0.15rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.app-main {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 1rem 1.25rem 3rem;
+}
+
+.view { display: none; }
+.view--active { display: block; }
+.view__heading {
+  margin: 0.5rem 0 1rem;
+  font-size: 1.25rem;
+}
+
+/* ---------- Forms ---------- */
+
+.start-form { display: grid; gap: 1.1rem; }
+
+.field { display: block; }
+.field__label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.35rem;
+}
+.field__input {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.field__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.field__hint {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.btn {
+  display: inline-block;
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { cursor: default; opacity: 0.75; }
+.btn--primary {
+  text-align: center;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+@media (prefers-color-scheme: dark) {
+  .btn--primary { color: #10201b; }
+}
+
+.status { margin-top: 1rem; color: var(--ink-soft); font-size: 0.92rem; }
+.status--error { color: var(--warn); }
+.offline-note {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+/* ---------- Panels: checkpoint + source confirm ---------- */
+
+.panel {
+  margin: 1.25rem 0;
+  padding: 1rem;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
+.panel__heading { margin: 0 0 0.75rem; font-size: 1rem; }
+.panel__options { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.panel__options--stacked { gap: 0.6rem; }
+.panel__note { margin: 0.75rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
+
+/* The checkpoint has to be noticeable without being alarming — a single
+   pulse on appearance, then it just sits there (NowPod spec §11). */
+.panel--checkpoint { position: sticky; bottom: 0.75rem; }
+.checkpoint--pulse { animation: pulse 1.1s ease-out 2; }
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(47, 111, 94, 0.45); }
+  100% { box-shadow: 0 0 0 12px rgba(47, 111, 94, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkpoint--pulse { animation: none; border-width: 2px; }
+}
+
+.candidate { display: grid; gap: 0.15rem; }
+.candidate__title { font-weight: 600; }
+.candidate__desc { font-size: 0.85rem; color: var(--ink-soft); }
+
+/* ---------- Assessment stage ---------- */
+
+.quiz {
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.quiz__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.quiz__prompt { margin: 0.5rem 0 1rem; font-size: 1.05rem; }
+.quiz__choices { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.quiz__note { margin: 1rem 0 0; font-size: 0.82rem; color: var(--ink-soft); }
+
+.choice--unsure { font-style: italic; color: var(--ink-soft); }
+.choice--picked { border-color: var(--ink-soft); border-width: 2px; }
+.choice--correct { border-color: var(--accent); background: var(--accent-soft); }
+
+.feedback {
+  margin: 0.9rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius);
+  font-size: 0.92rem;
+}
+.feedback--ok { background: var(--accent-soft); }
+.feedback--no { background: var(--warn-soft); }
+
+.chapter-badge {
+  flex: none;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+/* ---------- Player ---------- */
+
+.player-topbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.objective-now {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.transcript {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.line {
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius);
+  opacity: 0.72;
+  transition: opacity 0.2s ease;
+}
+.line--host-a { border-left-color: var(--host-a); }
+.line--host-b { border-left-color: var(--host-b); }
+.line--active { opacity: 1; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.07); }
+.line__speaker {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  margin-bottom: 0.15rem;
+}
+.line--host-a .line__speaker { color: var(--host-a); }
+.line--host-b .line__speaker { color: var(--host-b); }
+.line__text { display: block; }
+
+.player-controls { margin: 1rem 0; }
+.player-controls .btn { width: auto; text-align: center; }
+
+/* ---------- Result ---------- */
+
+.result-summary { font-size: 1.05rem; margin: 0 0 1.25rem; }
+.result-objectives { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.1rem; }
+.objective-result {
+  padding: 0.9rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.objective-result__text { margin: 0 0 0.6rem; font-weight: 600; font-size: 0.95rem; }
+.objective-result__label { margin: 0.5rem 0 0; font-size: 0.82rem; color: var(--ink-soft); }
+
+/* Two adjacent segments: what the student already had (muted) and what
+   changed (accent for a gain, warn for a drop). The accent segment IS the
+   growth, so the eye lands on the thing the lesson actually did. */
+.growth {
+  display: flex;
+  height: 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.growth__held,
+.growth__gain,
+.growth__loss {
+  display: block;
+  height: 100%;
+  transition: width 0.5s ease;
+}
+.growth__held { background: var(--ink-soft); opacity: 0.4; }
+.growth__gain { background: var(--accent); }
+.growth__loss { background: var(--warn); opacity: 0.7; }
+
+.result-caveat {
+  margin: 1.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+/* ---------- References + footer ---------- */
+
+.references { margin-top: 2rem; }
+.references__heading { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); margin: 0 0 0.5rem; }
+.references__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; font-size: 0.88rem; }
+.references__list a { color: var(--accent); }
+.references__source { color: var(--ink-soft); }
+
+.app-footer {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 2.5rem;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 0.5rem;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.disclaimer { color: var(--ink); }

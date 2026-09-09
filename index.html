@@ -1,0 +1,189 @@
+<!--
+  Poducator — lesson-oriented podcast generator (student app)
+
+  Single-page shell. Five views live in one document and are shown/hidden by the
+  state machine in js/app.js:
+
+    #start-view    topic + grade band + key
+    #assess-view   BOTH the opening diagnostic and the wrap-up quiz — same
+                   stage, different heading, so the student sees the two as
+                   the matched pair they are (spec §9)
+    #player-view   transcript, now-playing, and the checkpoint panel
+    #result-view   per-objective growth
+-->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Poducator — lessons you can talk back to</title>
+<meta name="description" content="A lesson-shaped podcast that diagnoses what you know, teaches the gaps, and checks whether it worked." />
+<meta name="theme-color" content="#1c2a3a" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="stylesheet" href="css/styles.css" />
+
+<header class="app-header">
+  <h1 class="app-header__title">Poducator</h1>
+  <p class="app-header__tagline">A lesson you can talk back to.</p>
+</header>
+
+<main class="app-main">
+
+  <!-- ============================================================= -->
+  <!-- START                                                          -->
+  <!-- ============================================================= -->
+  <section id="start-view" class="view view--active" aria-labelledby="start-heading">
+    <h2 id="start-heading" class="view__heading">What are you studying?</h2>
+
+    <form id="start-form" class="start-form" autocomplete="off">
+      <label class="field">
+        <span class="field__label">Topic</span>
+        <input
+          id="topic-input"
+          class="field__input"
+          type="text"
+          name="topic"
+          placeholder="e.g. photosynthesis"
+          required
+        />
+      </label>
+
+      <label class="field">
+        <span class="field__label">Reading level</span>
+        <select id="grade-select" class="field__input" name="gradeBand">
+          <option value="elementary">Elementary (3-5)</option>
+          <option value="middle">Middle school (6-8)</option>
+          <option value="high" selected>High school (9-12)</option>
+          <option value="college">College / adult</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span class="field__label">Claude API key</span>
+        <input
+          id="api-key-input"
+          class="field__input"
+          type="password"
+          name="apiKey"
+          placeholder="sk-ant-…"
+          autocomplete="off"
+          required
+        />
+        <small class="field__hint">
+          Phase 1 only. The key stays in this browser and goes straight to
+          api.anthropic.com. Students will never see this field — Phase 2 moves
+          it behind a server function (spec §7).
+        </small>
+      </label>
+
+      <button type="submit" class="btn btn--primary" id="start-btn">Build my lesson</button>
+    </form>
+
+    <!-- "Which one did you mean?" — only when the topic is ambiguous, and
+         always before any generation compute is spent. -->
+    <aside id="confirm-panel" class="panel" aria-labelledby="confirm-prompt" hidden>
+      <h3 id="confirm-prompt" class="panel__heading">Which one did you mean?</h3>
+      <ul id="confirm-options" class="panel__options panel__options--stacked"></ul>
+      <button type="button" class="btn" id="confirm-none-btn">
+        None of these — let me reword it
+      </button>
+    </aside>
+
+    <p id="start-status" class="status" role="status" aria-live="polite"></p>
+    <p id="offline-note" class="offline-note" role="status" hidden></p>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- ASSESSMENT — used for BOTH the diagnostic and the wrap-up quiz -->
+  <!-- One stage, not two: they are parallel forms of the same        -->
+  <!-- instrument (spec §9), and app.js swaps the heading and whether -->
+  <!-- feedback is shown.                                             -->
+  <!-- ============================================================= -->
+  <section id="assess-view" class="view" aria-labelledby="quiz-heading" hidden>
+    <div id="quiz-stage" class="quiz">
+      <div class="quiz__top">
+        <h2 id="quiz-heading" class="view__heading">Before we start</h2>
+        <span class="chapter-badge" id="quiz-progress">1 of 5</span>
+      </div>
+      <p id="quiz-prompt" class="quiz__prompt"></p>
+      <ul id="quiz-choices" class="quiz__choices"></ul>
+      <p id="quiz-feedback" class="feedback" role="status" aria-live="polite" hidden></p>
+      <p class="quiz__note">
+        "Not sure yet" is a real answer — it tells the lesson where to start
+        better than a guess does.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- PLAYER                                                         -->
+  <!-- ============================================================= -->
+  <section id="player-view" class="view" aria-labelledby="topic-title" hidden>
+    <div class="player-topbar">
+      <h2 id="topic-title" class="view__heading">Topic</h2>
+      <span class="chapter-badge" id="chapter-progress">Chapter 1</span>
+    </div>
+    <p id="objective-now" class="objective-now"></p>
+
+    <ol id="transcript" class="transcript" aria-live="polite"></ol>
+
+    <!-- Checkpoint: appears NON-MODALLY while the chapter is still playing.
+         Never pauses audio. Host B's riff is the answer window (spec §6). -->
+    <aside id="checkpoint-panel" class="panel panel--checkpoint" aria-labelledby="checkpoint-prompt" hidden>
+      <h3 id="checkpoint-prompt" class="panel__heading">Quick check</h3>
+      <ul id="checkpoint-choices" class="panel__options"></ul>
+      <p id="checkpoint-note" class="panel__note"></p>
+    </aside>
+
+    <div class="player-controls">
+      <button type="button" class="btn" id="skip-btn">Skip ahead</button>
+    </div>
+
+    <section class="references" aria-label="References">
+      <h3 class="references__heading">Sources for this lesson</h3>
+      <ul data-slot="references" class="references__list"></ul>
+    </section>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- RESULT                                                         -->
+  <!-- ============================================================= -->
+  <section id="result-view" class="view" aria-labelledby="result-heading" hidden>
+    <h2 id="result-heading" class="view__heading">Here's what moved.</h2>
+    <p id="result-summary" class="result-summary"></p>
+    <ul id="result-objectives" class="result-objectives"></ul>
+
+    <p class="result-caveat">
+      This is a handful of questions, not a grade. It's a signal about where to
+      look next — nothing more.
+    </p>
+
+    <section class="references" aria-label="References">
+      <h3 class="references__heading">Sources for this lesson</h3>
+      <ul data-slot="references" class="references__list"></ul>
+    </section>
+
+    <button type="button" class="btn btn--primary" id="restart-btn">Study something else</button>
+  </section>
+
+</main>
+
+<footer class="app-footer">
+  <small class="disclaimer">
+    Poducator uses AI and can make mistakes. It's a study aid — not a substitute
+    for your teacher or your textbook. Check the sources before citing anything.
+  </small>
+  <small>Poducator · Phase 1 · wiki sources · browser text-to-speech</small>
+</footer>
+
+<script type="module" src="js/app.js"></script>
+<script>
+  // Service worker registers only over http(s); opening the file directly
+  // (file://) should still run the app rather than throwing on load.
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {
+        /* offline support is a bonus, never a hard requirement */
+      });
+    });
+  }
+</script>
