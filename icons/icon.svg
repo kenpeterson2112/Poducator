@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Poducator">
+  <title>Poducator</title>
+  <rect width="512" height="512" rx="113" fill="#1c2a3a"/>
+  <g fill="#6cbfa6">
+    <rect x="92"  y="197" width="41" height="118" rx="20"/>
+    <rect x="174" y="154" width="41" height="204" rx="20"/>
+    <rect x="297" y="154" width="41" height="204" rx="20"/>
+    <rect x="379" y="197" width="41" height="118" rx="20"/>
+  </g>
+  <path d="M235 258 l24 34 l38 -74" fill="none" stroke="#e9f4f0"
+        stroke-width="27" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
