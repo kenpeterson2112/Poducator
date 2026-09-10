@@ -5,31 +5,64 @@
  * the two host personas, and generation settings. No logic here.
  */
 
-/** Learning objectives per lesson (spec §3). 3-5 keeps a session teachable. */
-export const OBJECTIVE_RANGE = Object.freeze({ min: 3, max: 5 });
+/**
+ * How many curriculum expectations one lesson may cover (spec §3).
+ *
+ * The educator picks these and the learner cannot change them. The cap is the
+ * point: a podcast that covers nine expectations covers none of them, and a
+ * three-item diagnostic cannot say anything useful about more than three.
+ */
+export const EXPECTATION_SELECTION = Object.freeze({ min: 1, max: 3 });
 
 /**
- * Assessment shape (spec §9). One item per objective, plus one spare on the
- * weakest, keeps the diagnostic near the ~90-second target.
+ * Assessment shape (spec §9).
+ *
+ * Three items, always — not "up to three". The budget stays fixed however many
+ * expectations were selected and gets spread across them (see
+ * curriculum/index.js `itemSplit`), so a one-expectation lesson asks three
+ * questions about that expectation rather than resting its whole growth
+ * measurement on a single binary item.
+ *
+ * Richer items cost time: a claim-and-reason choice set with a phenomenon stem
+ * runs nearer 30-40 seconds than 15, so the pre-pod quiz lands around two
+ * minutes rather than the 90 seconds the spec originally assumed for shallower
+ * recall items. Three good items beat six thin ones.
  */
 export const ASSESSMENT = Object.freeze({
-  diagnosticItems: { min: 4, max: 6 },
-  finalItems: { min: 4, max: 6 },
+  maxItems: 3,
   choicesPerItem: 4,
 });
 
-/** Chapter shape — short by design so generation stays fast (NowPod §5). */
+/**
+ * Chapter length, by how the learner scored on that expectation.
+ *
+ * The rule is that the more solid the understanding, the briefer the content.
+ * A learner who already has an idea should not sit through a full treatment of
+ * it — but because the educator explicitly locked this expectation into the
+ * lesson, it is never dropped entirely either (see objectives.planChapters).
+ *
+ * The last CHECKPOINT_LINES exchanges of every chapter are the checkpoint, so
+ * the floor here has to leave room to actually teach something first.
+ */
+export const CHAPTER_DEPTH = Object.freeze({
+  misconception: { minExchanges: 9, maxExchanges: 12 },
+  unknown: { minExchanges: 8, maxExchanges: 11 },
+  shaky: { minExchanges: 6, maxExchanges: 9 },
+  solid: { minExchanges: 5, maxExchanges: 7 },
+});
+
+/** Fallback shape when a status has no entry above. */
 export const CHAPTER_SHAPE = Object.freeze({
   minExchanges: 6,
   maxExchanges: 10,
 });
 
 /**
- * How many chapters a session runs. Unlike NowPod's fixed depth setting, the
- * count follows the gap profile: one chapter per objective that needs work,
- * clamped so a session stays a reasonable listen.
+ * How many chapters a session runs. One per selected expectation, plus room for
+ * the reteach branch (spec §6) to insert one more per expectation when a
+ * checkpoint is missed — so a three-expectation lesson can reach six chapters.
  */
-export const CHAPTER_BOUNDS = Object.freeze({ min: 2, max: 5 });
+export const CHAPTER_BOUNDS = Object.freeze({ min: 1, max: 6 });
 
 /**
  * How many closing exchanges form the checkpoint window (spec §6): Host A's
@@ -37,10 +70,12 @@ export const CHAPTER_BOUNDS = Object.freeze({ min: 2, max: 5 });
  */
 export const CHECKPOINT_LINES = 3;
 
-/** How many candidate articles the source-confirmation step offers. */
-export const CANDIDATE_COUNT = 3;
-
-/** Cap on source text fed to a generation call. */
+/**
+ * Cap on source text fed to a generation call. This is now a PER-EXPECTATION
+ * budget rather than a whole-lesson one: each chapter is grounded only in the
+ * material for the expectation it teaches, so the same number buys a more
+ * focused prompt than it used to.
+ */
 export const SOURCE_CHAR_LIMIT = 9000;
 
 /**

@@ -18,7 +18,7 @@
  */
 
 import { OUTCOME, classify } from './assessment.js';
-import { CHAPTER_BOUNDS } from './config.js';
+import { CHAPTER_BOUNDS, CHAPTER_DEPTH, CHAPTER_SHAPE } from './config.js';
 
 /** Per-objective status, ordered by teaching urgency (highest first). */
 export const STATUS = Object.freeze({
@@ -52,8 +52,9 @@ const STRATEGY = Object.freeze({
     'The student has partial understanding. Firm up the edges and connect it to the objectives ' +
     'they already have solid, rather than re-teaching from zero.',
   [STATUS.SOLID]:
-    'The student already has this. Touch it briefly, only where it connects to a weaker ' +
-    'objective, and do not belabor it.',
+    'The student already has this. Confirm it quickly, extend it one step past where they ' +
+    'already are, connect it to a weaker objective if there is one, and get out. Do not ' +
+    're-teach from the beginning and do not pad — brevity here is the reward for knowing it.',
 });
 
 /**
@@ -130,42 +131,56 @@ function statusFor(list) {
  * @typedef {Object} PlannedChapter
  * @property {string} objectiveId
  * @property {string} objectiveText
+ * @property {string} objectiveShort
+ * @property {string} brief          What covering this expectation means.
+ * @property {string} anchor         A concrete opening phenomenon.
  * @property {string} status
  * @property {string} strategy
+ * @property {{minExchanges: number, maxExchanges: number}} depth
  */
+
+/** How long a chapter should run, given how well the learner already knows it. */
+export function depthFor(status) {
+  return CHAPTER_DEPTH[status] ?? CHAPTER_SHAPE;
+}
 
 /**
  * Turn a gap profile into an ordered chapter plan.
  *
- * Objectives the student already has solid are dropped — sitting through four
- * minutes on something you already understand is exactly what this app exists
- * to avoid. But the plan never drops below CHAPTER_BOUNDS.min, so a student who
- * aces the diagnostic still gets a short session (the solid objectives come
- * back in, briefly) rather than an empty one.
+ * EVERY SELECTED EXPECTATION GETS A CHAPTER. This is the one place the app
+ * deliberately overrides its own diagnostic, and it is worth being explicit
+ * about why: an educator locked these one to three expectations in on purpose,
+ * and a single multiple-choice item is not strong enough evidence to overturn
+ * that. A learner can get one item right by guessing; they cannot un-choose
+ * what their teacher assigned.
+ *
+ * What the diagnostic controls instead is ORDER and LENGTH. The weakest
+ * expectation is taught first, and the better the learner already understands
+ * something, the briefer its chapter — down to a short confirm-and-extend for
+ * an expectation they arrived already solid on. That is the reward for knowing
+ * it, and it is the honest version of "don't make them sit through what they
+ * already know" once dropping it is off the table.
  *
  * @param {Objective[]} objectives
  * @param {Gap[]} gaps
  * @returns {PlannedChapter[]}
  */
 export function planChapters(objectives, gaps) {
-  const textById = new Map(objectives.map((o) => [o.id, o.text]));
-  const toChapter = (gap) => ({
-    objectiveId: gap.objectiveId,
-    objectiveText: textById.get(gap.objectiveId) ?? '',
-    status: gap.status,
-    strategy: gap.strategy,
+  const byId = new Map(objectives.map((o) => [o.id, o]));
+
+  return gaps.slice(0, CHAPTER_BOUNDS.max).map((gap) => {
+    const objective = byId.get(gap.objectiveId) ?? {};
+    return {
+      objectiveId: gap.objectiveId,
+      objectiveText: objective.text ?? '',
+      objectiveShort: objective.short ?? objective.text ?? gap.objectiveId,
+      brief: objective.brief ?? '',
+      anchor: objective.anchor ?? '',
+      status: gap.status,
+      strategy: gap.strategy,
+      depth: depthFor(gap.status),
+    };
   });
-
-  const needsWork = gaps.filter((g) => g.status !== STATUS.SOLID);
-  const solid = gaps.filter((g) => g.status === STATUS.SOLID);
-
-  // Backfill from the solid pile if the student knew almost everything.
-  const planned = [...needsWork];
-  while (planned.length < CHAPTER_BOUNDS.min && solid.length > 0) {
-    planned.push(solid.shift());
-  }
-
-  return planned.slice(0, CHAPTER_BOUNDS.max).map(toChapter);
 }
 
 /**
@@ -192,6 +207,10 @@ export function applyCheckpoint(remaining, justPlayed, outcome, alreadyRetaught)
     {
       ...justPlayed,
       status: STATUS.MISCONCEPTION,
+      // A reteach always gets full length, even for an expectation the learner
+      // arrived solid on — missing the check is evidence the diagnostic was
+      // wrong about them, and the brief treatment is what just failed.
+      depth: depthFor(STATUS.MISCONCEPTION),
       strategy:
         outcome === 'no_response'
           ? 'The student did not answer the check on this objective, which usually means they got ' +

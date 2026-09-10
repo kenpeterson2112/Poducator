@@ -1,11 +1,16 @@
 /**
- * styles.css — all styling for the student app.
+ * styles.css — all styling for the app.
  *
- * One deliberate choice worth naming: the checkpoint panel and the source
- * confirmation panel share a visual language (.panel). Both are the same
- * gesture — the lesson pausing to check something with the student before it
- * commits — and they should feel like the same thing happening twice, not two
- * unrelated interruptions.
+ * Two deliberate choices worth naming:
+ *
+ * 1. The checkpoint panel and the lesson-link panel share a visual language
+ *    (.panel). Both are the app surfacing something for a decision rather than
+ *    part of the flow, and they should read as the same kind of moment.
+ *
+ * 2. The educator picker and the learner's locked expectation list use the same
+ *    typography for a curriculum expectation — code chip, then the curriculum
+ *    text verbatim. An educator ticking D2.2 and a learner reading what their
+ *    lesson covers should be looking at recognisably the same object.
  */
 
 :root {
@@ -78,10 +83,16 @@ body {
   margin: 0.5rem 0 1rem;
   font-size: 1.25rem;
 }
+.view__subhead {
+  margin: -0.6rem 0 1.25rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
 
 /* ---------- Forms ---------- */
 
 .start-form { display: grid; gap: 1.1rem; }
+.educator-form { display: grid; gap: 1.25rem; }
 
 .field { display: block; }
 .field__label {
@@ -170,9 +181,109 @@ body {
   .checkpoint--pulse { animation: none; border-width: 2px; }
 }
 
-.candidate { display: grid; gap: 0.15rem; }
-.candidate__title { font-weight: 600; }
-.candidate__desc { font-size: 0.85rem; color: var(--ink-soft); }
+/* The lesson link is informational rather than a question, so it drops the
+   accent fill the checkpoint uses and keeps only the panel's shape. */
+.panel--link { background: var(--surface); border-color: var(--line); }
+.panel__actions {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 0.75rem;
+}
+.panel__actions .btn { text-align: center; }
+@media (max-width: 30rem) {
+  .panel__actions { grid-template-columns: 1fr; }
+}
+.lesson-link {
+  margin-top: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+}
+
+/* ---------- Educator: expectation picker ---------- */
+
+.expectations { margin: 0; padding: 0; border: 0; }
+.expectations__legend {
+  padding: 0;
+  margin-bottom: 0.85rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.expectation-group { margin-bottom: 1.25rem; }
+.expectation-group__heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.expectation-group__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.expectation {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: start;
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.expectation:hover { border-color: var(--accent); }
+.expectation:has(:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+/* At the cap, the unpicked options recede rather than vanish — an educator
+   should be able to see the limit without bumping into an error. */
+.expectation--disabled { opacity: 0.45; cursor: default; }
+.expectation--disabled:hover { border-color: var(--line); }
+
+.expectation__check { margin-top: 0.3rem; accent-color: var(--accent); }
+.expectation__code {
+  font-weight: 700;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.expectation__text { font-size: 0.88rem; line-height: 1.5; }
+
+/* ---------- Learner: the locked lesson ---------- */
+
+.locked-expectations {
+  list-style: none;
+  margin: 0 0 1.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.locked-expectation {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem;
+  padding: 0.8rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+}
+.locked-expectation__code {
+  font-weight: 700;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.locked-expectation__text { font-size: 0.9rem; line-height: 1.5; }
 
 /* ---------- Assessment stage ---------- */
 
@@ -276,6 +387,11 @@ body {
   border-radius: var(--radius);
 }
 .objective-result__text { margin: 0 0 0.6rem; font-weight: 600; font-size: 0.95rem; }
+.objective-result__code {
+  margin-right: 0.5rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
 .objective-result__label { margin: 0.5rem 0 0; font-size: 0.82rem; color: var(--ink-soft); }
 
 /* Two adjacent segments: what the student already had (muted) and what

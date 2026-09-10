@@ -1,71 +1,32 @@
 /**
  * claude.js — all generation (spec §8).
  *
- * Two call types, and deliberately only two:
+ * ONE call type now, and that is the headline change:
  *
- *   1. plan()    — once per session. Produces the objectives (explore mode),
- *                  the diagnostic items, AND the wrap-up items, together.
- *   2. chapter() — once per chapter. Dialogue + checkpoint, aimed at one
- *                  objective, informed by the gap profile and the last
- *                  checkpoint outcome.
+ *   chapter() — once per chapter. Dialogue + checkpoint, aimed at one
+ *               curriculum expectation, informed by the gap profile and the
+ *               last checkpoint outcome.
  *
- * Why both item sets come from ONE call: they have to be parallel forms —
- * same objectives, different items, matched difficulty. Generated in separate
- * calls the difficulty drifts, and a drifting instrument makes the pre/post
- * delta meaningless (spec §9). One call, one context, one calibration.
+ * The planning call is gone. Objectives are curriculum expectations an educator
+ * locked in, and the assessment items are pre-built and human-reviewed in
+ * js/curriculum/items.js. Two things came out of that beyond the saved call:
  *
- * Structure follows NowPod's js/claude.js: a pure buildPrompt/parseResponse
- * pair either side of the fetch, so prompts can be inspected and responses
- * parsed without a network call. Structured outputs (`output_config.format`)
- * guarantee the JSON parses.
+ *   1. Spec §11's conflict of interest is resolved. The model no longer authors
+ *      the test it then teaches to.
+ *   2. The one blocking round trip before a learner saw anything is gone, so
+ *      the first question renders immediately.
+ *
+ * Structure still follows NowPod's js/claude.js: a pure buildPrompt/parse pair
+ * either side of the fetch, so prompts can be inspected and responses parsed
+ * without a network call. Structured outputs (`output_config.format`) guarantee
+ * the JSON parses.
  */
 
-import {
-  CLAUDE,
-  CHAPTER_SHAPE,
-  HOSTS,
-  OBJECTIVE_RANGE,
-  ASSESSMENT,
-  GRADE_BANDS,
-  DEFAULT_GRADE_BAND,
-} from './config.js';
-import { UNSURE_LABEL } from './assessment.js';
+import { CLAUDE, CHAPTER_SHAPE, HOSTS, ASSESSMENT, GRADE_BANDS, DEFAULT_GRADE_BAND } from './config.js';
 
 /* ------------------------------------------------------------------ */
-/* Schemas                                                             */
+/* Schema                                                              */
 /* ------------------------------------------------------------------ */
-
-const ITEM_SCHEMA = {
-  type: 'object',
-  properties: {
-    objectiveId: { type: 'string' },
-    prompt: { type: 'string' },
-    choices: { type: 'array', items: { type: 'string' } },
-    correctIndex: { type: 'integer' },
-    explanation: { type: 'string' },
-  },
-  required: ['objectiveId', 'prompt', 'choices', 'correctIndex', 'explanation'],
-  additionalProperties: false,
-};
-
-const PLAN_SCHEMA = {
-  type: 'object',
-  properties: {
-    objectives: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: { id: { type: 'string' }, text: { type: 'string' } },
-        required: ['id', 'text'],
-        additionalProperties: false,
-      },
-    },
-    diagnostic: { type: 'array', items: ITEM_SCHEMA },
-    final: { type: 'array', items: ITEM_SCHEMA },
-  },
-  required: ['objectives', 'diagnostic', 'final'],
-  additionalProperties: false,
-};
 
 const CHAPTER_SCHEMA = {
   type: 'object',
@@ -110,77 +71,28 @@ function readingGuidance(gradeBand) {
 }
 
 /**
- * Build the planning prompt.
- * @param {{topic: string, source: string, gradeBand: string,
- *          objectives?: Array<{id: string, text: string}>}} input
- *   `objectives` is supplied in assigned mode (the teacher wrote them) and
- *   omitted in explore mode (the model infers them).
- */
-export function buildPlanPrompt(input) {
-  const { topic, source, gradeBand, objectives } = input;
-  const authored = Array.isArray(objectives) && objectives.length > 0;
-
-  const system = [
-    'You design short, focused lessons that are delivered as a two-host audio podcast.',
-    'You are writing the ASSESSMENT for one lesson, before any teaching happens.',
-    readingGuidance(gradeBand),
-    '',
-    'Rules:',
-    authored
-      ? '- The learning objectives are FIXED and given to you. Return them back unchanged, with their ids intact. Do not add, remove, reword, or reorder them.'
-      : `- Derive ${OBJECTIVE_RANGE.min}-${OBJECTIVE_RANGE.max} learning objectives from the source material. ` +
-        'Each must be a single, specific, checkable thing a student could demonstrate — "Explain why ' +
-        'X causes Y", not "Understand X". Order them so prerequisites come first. Give them ids ' +
-        'OBJ-1, OBJ-2, and so on.',
-    '',
-    `- Write ${ASSESSMENT.diagnosticItems.min}-${ASSESSMENT.diagnosticItems.max} DIAGNOSTIC items and the same number of FINAL items.`,
-    '- Every objective must be covered by at least one diagnostic item and at least one final item.',
-    '- The two sets are PARALLEL FORMS: they assess the same objectives at the same difficulty, ' +
-      'but no final item may reuse, paraphrase, or merely reorder a diagnostic item. A student who ' +
-      'memorized the diagnostic must gain no advantage on the final.',
-    `- Each item has exactly ${ASSESSMENT.choicesPerItem} choices. Do NOT include a "not sure" choice — the app adds one ("${UNSURE_LABEL}") automatically.`,
-    '- Wrong choices must be PLAUSIBLE — each should encode a real misconception a student actually ' +
-      'holds, not filler. The wrong answers are the diagnostic signal; throwaway distractors waste the item.',
-    '- "correctIndex" is the 0-based index of the correct choice. Vary its position across items.',
-    '- "explanation" is one or two sentences on why the right answer is right, written to be read by ' +
-      'a student who just got it wrong. No blame, no "obviously".',
-    '- Items must be answerable from the source material alone.',
-  ].join('\n');
-
-  const userParts = [
-    `Lesson topic: ${topic}`,
-    '',
-    '<source_material>',
-    source,
-    '</source_material>',
-  ];
-
-  if (authored) {
-    userParts.push(
-      '',
-      'Fixed learning objectives (return these unchanged):',
-      ...objectives.map((o) => `${o.id}: ${o.text}`)
-    );
-  }
-
-  userParts.push('', 'Produce the objectives and both item sets now.');
-
-  return { system, messages: [{ role: 'user', content: userParts.join('\n') }] };
-}
-
-/**
  * Build the chapter prompt.
- * @param {{topic: string, source: string, gradeBand: string,
+ *
+ * Three curriculum fields do work here that a topic string cannot. `brief` says
+ * what covering this expectation MEANS at this grade, which is what stops the
+ * model from teaching whatever the source article happens to emphasize —
+ * Wikipedia's "Symmetry" is about group theory, and a chapter grounded only in
+ * it would miss the expectation entirely. `anchor` gives a concrete opening
+ * phenomenon. `depth` sets the length from how well the learner already knows
+ * it: the better they scored, the shorter the chapter.
+ *
+ * @param {{lessonTitle: string, source: string, gradeBand: string,
  *          chapter: import('./objectives.js').PlannedChapter,
  *          priorSummary: string, chapterIndex: number, chapterTotal: number,
  *          lastCheckpoint?: {objectiveText: string, outcome: string}|null}} input
  */
 export function buildChapterPrompt(input) {
   const {
-    topic, source, gradeBand, chapter,
+    lessonTitle, source, gradeBand, chapter,
     priorSummary, chapterIndex, chapterTotal, lastCheckpoint,
   } = input;
   const isLast = chapterIndex === chapterTotal - 1;
+  const depth = chapter.depth ?? CHAPTER_SHAPE;
 
   const system = [
     'You write dialogue for a two-host educational podcast called Poducator.',
@@ -188,9 +100,13 @@ export function buildChapterPrompt(input) {
     `Host B is "${HOSTS.B.name}": ${HOSTS.B.role}`,
     readingGuidance(gradeBand),
     '',
+    'This lesson is tied to a specific curriculum expectation that a teacher selected. Covering ' +
+      'that expectation is the job — not covering the topic in general, and not covering whatever ' +
+      'the source material happens to emphasize.',
+    '',
     'Rules:',
-    `- Write ${CHAPTER_SHAPE.minExchanges}-${CHAPTER_SHAPE.maxExchanges} short spoken exchanges, alternating hosts.`,
-    '- This chapter teaches ONE objective. Stay on it. Do not survey the whole topic.',
+    `- Write ${depth.minExchanges}-${depth.maxExchanges} short spoken exchanges, alternating hosts.`,
+    '- This chapter teaches ONE expectation. Stay on it. Do not survey the whole topic.',
     '- Ground every factual claim in the source material. If the source is thin on something, say ' +
       'less rather than inventing more.',
     '- Lines are spoken aloud by text-to-speech: conversational, no stage directions, no markdown, ' +
@@ -200,14 +116,16 @@ export function buildChapterPrompt(input) {
       'Host A can correct it kindly.',
     '',
     '- The FINAL 3 exchanges are the CHECKPOINT, written fully in character:',
-    '  - Host A asks ONE comprehension question about this chapter\'s objective, out loud, as a ' +
+    '  - Host A asks ONE comprehension question about this chapter\'s expectation, out loud, as a ' +
       'real question a host would ask — never "please select an option below".',
     '  - Then Host B riffs for 2-4 sentences: thinking out loud, narrowing it down, saying which ' +
       'part they found hardest. This riff is the answer window — it must never sound like the show ' +
       'is waiting on the listener, and it must not give the answer away.',
     `- The "checkpoint" object mirrors that spoken question for the UI: "prompt" is the question, ` +
-      `"choices" is exactly ${ASSESSMENT.choicesPerItem} short options with plausible wrong answers, ` +
-      '"correctIndex" is 0-based, "explanation" is a short why.',
+      `"choices" is exactly ${ASSESSMENT.choicesPerItem} short options, "correctIndex" is 0-based, ` +
+      '"explanation" is a short why.',
+    '- Each wrong checkpoint choice must encode a mistake a student actually makes about THIS ' +
+      'expectation. A throwaway option wastes the check — the wrong answer is the useful signal.',
     '- "spokenAnswer" is what Host A says aloud if the listener never answers: it reveals and ' +
       'explains the answer conversationally, in Host A\'s voice, and moves the show along. Two or ' +
       'three sentences. It must read naturally after Host B\'s riff.',
@@ -218,24 +136,39 @@ export function buildChapterPrompt(input) {
   ].join('\n');
 
   const userParts = [
-    `Lesson topic: ${topic}`,
+    `Lesson: ${lessonTitle}`,
     `Chapter ${chapterIndex + 1} of ${chapterTotal}.`,
     '',
-    `THIS CHAPTER TEACHES: ${chapter.objectiveText}`,
+    'THIS CHAPTER TEACHES THIS CURRICULUM EXPECTATION:',
+    chapter.objectiveText,
     '',
-    `The diagnostic showed where this student stands on it. How to approach it: ${chapter.strategy}`,
+    `What covering it means at this grade level: ${chapter.brief}`,
+  ];
+
+  if (chapter.anchor) {
+    userParts.push(
+      '',
+      `A concrete situation you may open on, if it helps: ${chapter.anchor}. Use it or find a ` +
+        'better one — do not force it.'
+    );
+  }
+
+  userParts.push(
+    '',
+    `The learner answered questions on this expectation before the lesson started. How to ` +
+      `approach it: ${chapter.strategy}`,
     '',
     '<source_material>',
     source,
-    '</source_material>',
-  ];
+    '</source_material>'
+  );
 
   if (chapter.isReteach) {
     userParts.push(
       '',
-      'IMPORTANT: this objective was already taught once in this session and the student still ' +
-        'missed the check. Do not repeat the earlier explanation in different words — the student ' +
-        'has already heard that framing and it did not work. Change the approach entirely.'
+      'IMPORTANT: this expectation was already taught once in this session and the learner still ' +
+        'missed the check. Do not repeat the earlier explanation in different words — they have ' +
+        'already heard that framing and it did not work. Change the approach entirely.'
     );
   }
 
@@ -245,9 +178,9 @@ export function buildChapterPrompt(input) {
 
   if (lastCheckpoint) {
     const note = {
-      correct: `The student answered the last check correctly (on: ${lastCheckpoint.objectiveText}). Host A can acknowledge that briefly and build on it.`,
-      incorrect: `The student answered the last check incorrectly (on: ${lastCheckpoint.objectiveText}). Do not shame it or dwell on it; carry the corrected idea forward as you teach this chapter.`,
-      no_response: `The student did not answer the last check (on: ${lastCheckpoint.objectiveText}). Assume they may have drifted — open this chapter with a concrete hook rather than an abstract statement.`,
+      correct: `The learner answered the last check correctly (on: ${lastCheckpoint.objectiveText}). Host A can acknowledge that briefly and build on it.`,
+      incorrect: `The learner answered the last check incorrectly (on: ${lastCheckpoint.objectiveText}). Do not shame it or dwell on it; carry the corrected idea forward as you teach this chapter.`,
+      no_response: `The learner did not answer the last check (on: ${lastCheckpoint.objectiveText}). Assume they may have drifted — open this chapter with a concrete hook rather than an abstract statement.`,
     }[lastCheckpoint.outcome];
     if (note) userParts.push('', note);
   }
@@ -272,73 +205,9 @@ function parseJson(raw) {
 }
 
 /**
- * Coerce one raw item into a validated Item, or null if unusable.
- * Ids are assigned here rather than asked of the model — client-generated ids
- * are guaranteed unique, and the model has no reason to be good at it.
- */
-function toItem(raw, index, phase, validObjectiveIds) {
-  const choices = (raw?.choices ?? []).filter((c) => typeof c === 'string' && c.trim());
-  if (choices.length < 2) return null;
-  if (typeof raw.prompt !== 'string' || !raw.prompt.trim()) return null;
-  if (!validObjectiveIds.has(raw.objectiveId)) return null;
-
-  const correctIndex = Number.isInteger(raw.correctIndex) ? raw.correctIndex : 0;
-  if (correctIndex < 0 || correctIndex >= choices.length) return null;
-
-  return {
-    id: `${phase}-${index + 1}`,
-    objectiveId: raw.objectiveId,
-    prompt: raw.prompt.trim(),
-    choices,
-    correctIndex,
-    explanation: typeof raw.explanation === 'string' ? raw.explanation : '',
-  };
-}
-
-/**
- * Parse the planning response.
- * @param {string} raw
- * @param {Array<{id: string, text: string}>} [authoredObjectives]
- * @returns {{objectives: Array<{id: string, text: string}>,
- *            diagnostic: import('./assessment.js').Item[],
- *            final: import('./assessment.js').Item[]}}
- */
-export function parsePlanResponse(raw, authoredObjectives) {
-  const data = parseJson(raw);
-
-  // In assigned mode the teacher's objectives are authoritative; the model was
-  // told to echo them, but trusting that echo would let a paraphrase silently
-  // replace what the teacher wrote.
-  const objectives =
-    Array.isArray(authoredObjectives) && authoredObjectives.length > 0
-      ? authoredObjectives
-      : (data.objectives ?? [])
-          .filter((o) => typeof o?.id === 'string' && typeof o?.text === 'string' && o.text.trim())
-          .map((o) => ({ id: o.id, text: o.text.trim() }));
-
-  if (objectives.length === 0) {
-    throw new Error('Lesson planning returned no learning objectives.');
-  }
-
-  const validIds = new Set(objectives.map((o) => o.id));
-  const diagnostic = (data.diagnostic ?? [])
-    .map((raw, i) => toItem(raw, i, 'diagnostic', validIds))
-    .filter(Boolean);
-  const final = (data.final ?? [])
-    .map((raw, i) => toItem(raw, i, 'final', validIds))
-    .filter(Boolean);
-
-  if (diagnostic.length === 0) {
-    throw new Error('Lesson planning returned no usable diagnostic questions.');
-  }
-
-  return { objectives, diagnostic, final };
-}
-
-/**
  * Parse a chapter response.
  * @param {string} raw
- * @param {string} objectiveId  Tag the checkpoint to the chapter's objective.
+ * @param {string} objectiveId  Tag the checkpoint to the chapter's expectation.
  */
 export function parseChapterResponse(raw, objectiveId) {
   const data = parseJson(raw);
@@ -393,7 +262,7 @@ export function parseChapterResponse(raw, objectiveId) {
  *
  * @param {{system: string, messages: Array}} prompt
  * @param {Object} schema
- * @param {{apiKey?: string, proxyUrl?: string, signal?: AbortSignal}} opts
+ * @param {{apiKey?: string, proxyUrl?: string, classCode?: string, signal?: AbortSignal}} opts
  * @returns {Promise<string>}
  */
 async function callClaude(prompt, schema, opts) {
@@ -446,15 +315,6 @@ async function callClaude(prompt, schema, opts) {
     throw new Error(`Generation returned no content (stop_reason: ${data.stop_reason}).`);
   }
   return text;
-}
-
-/**
- * Plan a lesson: objectives (explore mode) plus both parallel item sets.
- * @returns {Promise<{objectives: Array, diagnostic: Array, final: Array}>}
- */
-export async function plan(input, opts) {
-  const text = await callClaude(buildPlanPrompt(input), PLAN_SCHEMA, opts);
-  return parsePlanResponse(text, input.objectives);
 }
 
 /**
