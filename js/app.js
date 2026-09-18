@@ -29,7 +29,14 @@
  *   why it is resolved during the riff rather than at the end.
  */
 
-import { API_KEY_STORAGE_KEY, CHECKPOINT_LINES, CHECKPOINT_OUTCOME } from './config.js';
+import {
+  API_KEY_STORAGE_KEY,
+  PASSPHRASE_STORAGE_KEY,
+  PROXY_URL,
+  usingProxy,
+  CHECKPOINT_LINES,
+  CHECKPOINT_OUTCOME,
+} from './config.js';
 import * as sources from './sources/index.js';
 import * as claude from './claude.js';
 import * as assessment from './assessment.js';
@@ -59,6 +66,8 @@ function main() {
     onSelectionChange: refreshLessonLink,
     onPreviewLesson,
   });
+  ui.setCredentialMode(usingProxy());
+  ui.setPassphrase(localStorage.getItem(PASSPHRASE_STORAGE_KEY) ?? '');
   ui.setApiKey(localStorage.getItem(API_KEY_STORAGE_KEY) ?? '');
   tts.initVoices();
   store.flush(); // drain anything stranded by a previous session's bad wifi
@@ -129,12 +138,27 @@ function onPreviewLesson() {
 
 async function onStart() {
   if (!lesson) return;
-  const { apiKey } = ui.readStart();
-  if (!apiKey) {
-    ui.setStatus('Paste a Claude API key to build the lesson.', true);
-    return;
+  // One credentials object, built once, threaded through every generation
+  // call. claude.js:callClaude already branches on proxyUrl, so which mode is
+  // active stays a single decision made here rather than at each call site.
+  let credentials;
+  if (usingProxy()) {
+    const { passphrase } = ui.readStart();
+    if (!passphrase) {
+      ui.setStatus('Enter the class passphrase to start.', true);
+      return;
+    }
+    localStorage.setItem(PASSPHRASE_STORAGE_KEY, passphrase);
+    credentials = { proxyUrl: PROXY_URL, passphrase };
+  } else {
+    const { apiKey } = ui.readStart();
+    if (!apiKey) {
+      ui.setStatus('Paste a Claude API key to build the lesson.', true);
+      return;
+    }
+    localStorage.setItem(API_KEY_STORAGE_KEY, apiKey);
+    credentials = { apiKey };
   }
-  localStorage.setItem(API_KEY_STORAGE_KEY, apiKey);
 
   const objectives = curriculum.toObjectives(lesson.codes);
   const { diagnostic, final } = curriculum.sampleItems(lesson.codes);
@@ -143,7 +167,7 @@ async function onStart() {
     runId: ++runCounter,
     lessonTitle: curriculum.lessonTitle(lesson),
     gradeBand: lesson.gradeBand,
-    apiKey,
+    credentials,
     objectives,
     diagnosticItems: diagnostic,
     finalItems: final,
@@ -179,6 +203,9 @@ async function onStart() {
     if (!isCurrentRun(state)) return;
     tts.stop();
     ui.hideCheckpoint();
+    // Don't keep a passphrase the server rejected — otherwise it prefills the
+    // field on every reload and the learner retries the same wrong value.
+    if (err?.code === 'bad_passphrase') localStorage.removeItem(PASSPHRASE_STORAGE_KEY);
     ui.showView('start');
     ui.setStatus(err?.message ?? 'Something went wrong — try again.', true);
   }
@@ -286,9 +313,10 @@ async function teach() {
   let index = 0;
 
   ui.setChapterHeader(run.lessonTitle, 'Preparing the first chapter…', '');
-  let pending = claude.chapter(chapterInput(run.chapterQueue[0], 0, plannedTotal), {
-    apiKey: run.apiKey,
-  });
+  let pending = claude.chapter(
+    chapterInput(run.chapterQueue[0], 0, plannedTotal),
+    run.credentials
+  );
 
   while (isCurrentRun(run) && run.chapterQueue.length > 0) {
     const planned = run.chapterQueue.shift();
@@ -336,7 +364,7 @@ async function teach() {
       );
       pending = claude.chapter(
         chapterInput(run.chapterQueue[0], index, Math.max(plannedTotal, index + 1)),
-        { apiKey: run.apiKey }
+        run.credentials
       );
     } else if (!isLast) {
       break;
