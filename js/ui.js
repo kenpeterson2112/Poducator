@@ -104,7 +104,14 @@ export function init() {
   els.resultHeading = byId('result-heading');
   els.resultCaveat = byId('result-caveat');
 
+  els.appMain = document.querySelector('.app-main');
+  els.appHeader = byId('app-header');
+  els.appFooter = document.querySelector('.app-footer');
+  els.shareBtn = byId('share-btn');
+  // Two entry points to the library now: the landing page's brand bar and the
+  // shared header everywhere else.
   els.libraryBtn = byId('library-btn');
+  els.libraryBtnGlobal = byId('library-btn-global');
   els.libraryList = byId('library-list');
   els.libraryEmpty = byId('library-empty');
   els.libraryStatus = byId('library-status');
@@ -119,6 +126,12 @@ export function showView(name) {
     el.hidden = key !== name;
     el.classList.toggle('view--active', key === name);
   }
+  // The landing page is full-bleed and carries its own brand header, so the
+  // shared chrome steps out of its way rather than doubling up.
+  const landing = name === 'student';
+  els.appMain?.classList.toggle('app-main--bleed', landing);
+  if (els.appHeader) els.appHeader.hidden = landing;
+  if (els.appFooter) els.appFooter.hidden = landing;
 }
 
 /**
@@ -874,7 +887,19 @@ export function bindHandlers(handlers) {
     handlers.onStudentStart?.();
   });
 
-  els.libraryBtn.addEventListener('click', () => handlers.onOpenLibrary?.());
+  els.libraryBtn?.addEventListener('click', () => handlers.onOpenLibrary?.());
+  els.libraryBtnGlobal?.addEventListener('click', () => handlers.onOpenLibrary?.());
+  els.shareBtn?.addEventListener('click', () => handlers.onShare?.());
+
+  // Light the field up once it holds a value. CSS :focus covers the moment of
+  // typing, but it cannot tell a select showing a chosen option from one
+  // showing its default — and a learner who picked something should see it.
+  for (const input of document.querySelectorAll('.lfield__input')) {
+    const sync = () => input.classList.toggle('is-filled', Boolean(input.value));
+    input.addEventListener('input', sync);
+    input.addEventListener('change', sync);
+    sync();
+  }
   els.exportBtn.addEventListener('click', () => {
     if (resultSession) handlers.onExportSession?.(resultSession);
   });

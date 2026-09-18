@@ -72,6 +72,7 @@ function main() {
     onSelectionChange: refreshLessonLink,
     onPreviewLesson,
     onStudentStart,
+    onShare,
     onExportSession,
     onImportFile,
     onPlaySaved,
@@ -613,6 +614,28 @@ async function finish() {
 /* ------------------------------------------------------------------ */
 /* Student mode (P2)                                                   */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Share the app itself — the landing page has nothing else worth sharing yet,
+ * and a decorative icon that does nothing is worse than no icon.
+ *
+ * Deliberately shares the app root, not location.href: a lesson hash would
+ * hand a classmate someone else's locked lesson rather than the app.
+ */
+async function onShare() {
+  const url = new URL('.', location.href).href;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Poducator', text: 'A lesson you can talk back to.', url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    ui.setStudentStatus('Link copied.');
+  } catch {
+    // A cancelled share sheet lands here too, which is not an error worth
+    // reporting — the learner simply changed their mind.
+  }
+}
 
 /**
  * Build the credentials object for a student run, or throw with a message fit
