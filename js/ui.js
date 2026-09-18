@@ -41,6 +41,7 @@ export function init() {
   const byId = (id) => document.getElementById(id);
   els.views = {
     educator: byId('educator-view'),
+    library: byId('library-view'),
     start: byId('start-view'),
     assess: byId('assess-view'),
     player: byId('player-view'),
@@ -86,6 +87,13 @@ export function init() {
   els.restartBtn = byId('restart-btn');
   els.referenceLists = Array.from(document.querySelectorAll('[data-slot="references"]'));
   els.offlineNote = byId('offline-note');
+
+  els.libraryBtn = byId('library-btn');
+  els.libraryList = byId('library-list');
+  els.libraryEmpty = byId('library-empty');
+  els.libraryStatus = byId('library-status');
+  els.importInput = byId('import-input');
+  els.exportBtn = byId('export-btn');
 }
 
 /** Show exactly one view. */
@@ -541,7 +549,12 @@ export function renderResult(growth, objectives, gaps) {
       const start = statusById.get(g.objectiveId);
       const movement =
         g.delta > 0 ? `up ${g.delta} points` : g.delta < 0 ? `down ${Math.abs(g.delta)}` : 'no change';
-      label.textContent = `Started: ${statusLabel(start)} · ${g.before}% → ${g.after}% (${movement})`;
+      // An imported or skipped-diagnostic session has no starting status. Say
+      // so rather than rendering "Started: undefined" — a missing baseline is
+      // a real state, not a glitch.
+      label.textContent = start
+        ? `Started: ${statusLabel(start)} · ${g.before}% → ${g.after}% (${movement})`
+        : `${g.before}% → ${g.after}% (${movement})`;
 
       li.append(head, bar, label);
       return li;
@@ -569,6 +582,111 @@ export function renderReferences(refs) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Saved lessons                                                       */
+/* ------------------------------------------------------------------ */
+
+/** The session the result screen is currently showing, for the export button. */
+let resultSession = null;
+
+/** Tell the UI which session an export button would write out. */
+export function setResultSession(session) {
+  resultSession = session;
+  els.exportBtn.hidden = !session;
+}
+
+export function setLibraryStatus(message, isError = false) {
+  els.libraryStatus.textContent = message;
+  els.libraryStatus.classList.toggle('status--error', isError);
+}
+
+/** Human date for a library row. */
+function whenLabel(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/**
+ * Render the saved-lessons list.
+ *
+ * In-progress sessions are shown rather than hidden, and labelled as such: a
+ * learner who was interrupted at chapter two should be able to see that their
+ * work survived. Hiding them would make the recovery invisible, which defeats
+ * the reason for saving progress at all.
+ * @param {Array} sessions
+ */
+export function renderLibrary(sessions) {
+  setLibraryStatus('');
+  els.libraryEmpty.hidden = sessions.length > 0;
+
+  els.libraryList.replaceChildren(
+    ...sessions.map((session) => {
+      const li = document.createElement('li');
+      li.className = 'library-item';
+
+      const head = document.createElement('div');
+      head.className = 'library-item__head';
+
+      const title = document.createElement('span');
+      title.className = 'library-item__title';
+      title.textContent = session.topic || 'Untitled lesson';
+      head.append(title);
+
+      if (session.inProgress) {
+        const badge = document.createElement('span');
+        badge.className = 'library-item__badge';
+        badge.textContent = 'unfinished';
+        head.append(badge);
+      }
+
+      const meta = document.createElement('p');
+      meta.className = 'library-item__meta';
+      const parts = [whenLabel(session.startedAt)];
+      const chapters = session.chapters?.length ?? 0;
+      if (chapters) parts.push(`${chapters} chapter${chapters === 1 ? '' : 's'}`);
+      if (session.expectations?.length) parts.push(session.expectations.join(', '));
+      meta.textContent = parts.filter(Boolean).join(' · ');
+
+      const actions = document.createElement('div');
+      actions.className = 'library-item__actions';
+
+      const play = document.createElement('button');
+      play.type = 'button';
+      play.className = 'btn';
+      play.textContent = chapters ? 'Play' : 'No chapters yet';
+      play.disabled = chapters === 0;
+      play.addEventListener('click', () => libraryHandlers.onPlaySaved?.(session.id));
+
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'btn';
+      save.textContent = 'Download';
+      save.addEventListener('click', () => libraryHandlers.onExportSession?.(session));
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'btn btn--quiet';
+      del.textContent = 'Delete';
+      del.addEventListener('click', () => {
+        // Deleting is the one irreversible thing in the library, and these
+        // files exist precisely because someone wanted to keep them.
+        if (confirm(`Delete "${session.topic || 'this lesson'}" from this device?`)) {
+          libraryHandlers.onDeleteSession?.(session.id);
+        }
+      });
+
+      actions.append(play, save, del);
+      li.append(head, meta, actions);
+      return li;
+    })
+  );
+}
+
+/** Handlers the library rows call into; filled by bindHandlers. */
+let libraryHandlers = {};
+
 export function bindHandlers(handlers) {
   onSelectionChange = handlers.onSelectionChange ?? (() => {});
 
@@ -579,6 +697,21 @@ export function bindHandlers(handlers) {
   els.gradeSelect.addEventListener('change', () => onSelectionChange());
   els.previewBtn.addEventListener('click', handlers.onPreviewLesson);
   els.copyLinkBtn.addEventListener('click', copyLessonLink);
+  libraryHandlers = handlers;
+
+  els.libraryBtn.addEventListener('click', () => handlers.onOpenLibrary?.());
+  els.exportBtn.addEventListener('click', () => {
+    if (resultSession) handlers.onExportSession?.(resultSession);
+  });
+  els.exportBtn.hidden = true;
+  els.importInput.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    // Clear the input so re-picking the same file fires change again — a demo
+    // loop means opening the same file repeatedly while editing it.
+    e.target.value = '';
+    if (file) handlers.onImportFile?.(file);
+  });
+
   els.skipBtn.addEventListener('click', handlers.onSkip);
   els.restartBtn.addEventListener('click', () => handlers.onRestart());
 }

@@ -25,8 +25,11 @@
 <link rel="stylesheet" href="css/styles.css" />
 
 <header class="app-header">
-  <h1 class="app-header__title">Poducator</h1>
-  <p class="app-header__tagline">A lesson you can talk back to.</p>
+  <div class="app-header__text">
+    <h1 class="app-header__title">Poducator</h1>
+    <p class="app-header__tagline">A lesson you can talk back to.</p>
+  </div>
+  <button type="button" class="btn btn--ghost" id="library-btn">Saved lessons</button>
 </header>
 
 <main class="app-main">
@@ -74,6 +77,37 @@
         the lock is about what the app offers them, not about tamper-proofing.)
       </small>
     </aside>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- LIBRARY — lessons saved on this device, plus file import      -->
+  <!-- Importing a .poducator file plays it with NO API calls, which -->
+  <!-- is what makes iterating on the experience free.               -->
+  <!-- ============================================================= -->
+  <section id="library-view" class="view" aria-labelledby="library-heading" hidden>
+    <h2 id="library-heading" class="view__heading">Saved lessons</h2>
+    <p class="view__subhead">
+      Everything below is stored on this device only. Nothing here has been sent
+      anywhere.
+    </p>
+
+    <ul id="library-list" class="library-list"></ul>
+    <p id="library-empty" class="library-empty" hidden>
+      No saved lessons yet. Finish a lesson, or open a <code>.poducator</code>
+      file below.
+    </p>
+
+    <aside class="panel panel--import" aria-labelledby="import-heading">
+      <h3 id="import-heading" class="panel__heading">Open a lesson file</h3>
+      <p class="panel__note">
+        Plays a <code>.poducator</code> file straight through — no API calls, no
+        key, works offline. Useful for demoing, and for trying a podcast written
+        by hand rather than generated.
+      </p>
+      <input type="file" id="import-input" class="field__input" accept=".poducator,.json,application/json" />
+    </aside>
+
+    <p id="library-status" class="status" role="status" aria-live="polite"></p>
   </section>
 
   <!-- ============================================================= -->
@@ -202,7 +236,10 @@
       <ul data-slot="references" class="references__list"></ul>
     </section>
 
-    <button type="button" class="btn btn--primary" id="restart-btn">Run it again</button>
+    <div class="result-actions">
+      <button type="button" class="btn" id="export-btn">Save this lesson to my device</button>
+      <button type="button" class="btn btn--primary" id="restart-btn">Run it again</button>
+    </div>
   </section>
 
 </main>

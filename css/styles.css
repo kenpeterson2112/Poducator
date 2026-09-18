@@ -455,3 +455,85 @@ body {
   line-height: 1.5;
 }
 .disclaimer { color: var(--ink); }
+
+/* ---------- Header action ---------- */
+
+.app-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.btn--ghost {
+  width: auto;
+  flex: none;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+  background: transparent;
+}
+.btn--quiet { color: var(--warn); }
+
+/* ---------- Saved lessons ---------- */
+
+.library-list {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.library-item {
+  padding: 0.9rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.library-item__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.library-item__title { font-weight: 600; }
+
+/* An unfinished session is shown, not hidden — the point of saving progress is
+   that the learner can see their work survived. */
+.library-item__badge {
+  padding: 0.1rem 0.45rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: 999px;
+}
+.library-item__meta {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+.library-item__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.library-item__actions .btn {
+  width: auto;
+  flex: none;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.88rem;
+}
+.library-empty {
+  margin: 0 0 1.25rem;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+.panel--import { background: var(--surface); border-color: var(--line); }
+
+.result-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+.result-actions .btn { width: auto; flex: 1 1 auto; text-align: center; }

@@ -1,0 +1,64 @@
+{
+  "format": "poducator.session",
+  "version": 1,
+  "exportedAt": "2026-09-18T12:00:00.000Z",
+  "session": {
+    "topic": "Structures: solid, frame and shell",
+    "gradeBand": "middle",
+    "curriculumId": "ontario-sci-7-d",
+    "expectations": ["D2.1"],
+    "objectives": [
+      { "id": "D2.1", "text": "Classify structures as solid structures, frame structures, or shell structures" }
+    ],
+    "chapters": [
+      {
+        "objectiveId": "D2.1",
+        "objectiveShort": "Classify solid, frame and shell structures",
+        "lines": [
+          { "speaker": "A", "text": "Okay. Look at a bike leaning against a wall, and then look at the wall itself. Both are structures, but they are built on completely different ideas." },
+          { "speaker": "B", "text": "I would have said the wall is just... more structure? Like it is the same thing but heavier." },
+          { "speaker": "A", "text": "That is the exact instinct we want to take apart. The wall is a solid structure. It works because it is made of one packed mass of material. The bike is a frame structure. It is mostly empty space held open by parts joined together." },
+          { "speaker": "B", "text": "So the bike is strong because of the joins, not because of how much metal is there." },
+          { "speaker": "A", "text": "Right. And the third kind is a shell structure, like a bike helmet or an egg. A thin curved outer layer doing the work, with nothing inside it at all." },
+          { "speaker": "B", "text": "Which feels the most wrong, honestly. Thin should mean weak." },
+          { "speaker": "A", "text": "It should, and it does not, because the curve spreads a push out across the whole surface instead of letting it land in one spot. So here is the check: a soccer ball. Solid, frame, or shell?" },
+          { "speaker": "B", "text": "I want to say solid because it is heavy when it hits you. But that is the same mistake I made with the wall, is it not. I am thinking about how it feels rather than how it is built." }
+        ],
+        "checkpoint": {
+          "prompt": "A soccer ball is which kind of structure?",
+          "choices": [
+            "Solid — it is dense and feels heavy on impact",
+            "Shell — a thin curved outer layer with nothing inside",
+            "Frame — the stitched panels act as joined parts",
+            "None of these — a ball is not a structure"
+          ],
+          "correctIndex": 1,
+          "explanation": "A soccer ball is a shell: a thin curved outer layer holds its shape and spreads out any force pushing on it. What is inside is air, not material doing work.",
+          "spokenAnswer": "It is a shell. The outside layer is doing everything — the inside is just air. And that hunch you had about weight is worth noticing, because how something feels on impact tells you about force, not about how it is built."
+        },
+        "summary": "Introduced solid, frame and shell structures, and the idea that classification depends on how a structure is built rather than how heavy it feels."
+      }
+    ],
+    "finalItems": [
+      {
+        "id": "final-1",
+        "objectiveId": "D2.1",
+        "prompt": "A climbing frame in a playground is made of metal bars bolted together with gaps between them. Which classification fits, and why?",
+        "choices": [
+          "Solid, because metal is a dense material",
+          "Shell, because children are enclosed by it",
+          "Frame, because joined parts hold open a mostly empty space",
+          "Frame, because it is outdoors and must resist weather"
+        ],
+        "correctIndex": 2,
+        "explanation": "It is a frame structure: the classification comes from joined parts holding a mostly open shape, not from the material or where it sits."
+      }
+    ],
+    "refs": [
+      { "title": "Structure", "url": "https://en.wikipedia.org/wiki/Structure", "label": "Wikipedia" }
+    ],
+    "startedAt": "2026-09-18T12:00:00.000Z",
+    "completedAt": "2026-09-18T12:08:00.000Z",
+    "inProgress": false
+  }
+}

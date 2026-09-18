@@ -93,11 +93,14 @@ export function isRemote() {
  * @property {string|null} curriculumId  Which curriculum the expectations came from.
  * @property {string[]} expectations     The codes the educator locked in.
  * @property {Array} objectives
+ * @property {Array} diagnosticItems  Kept so a saved session rereads the same questions.
+ * @property {Array} finalItems
  * @property {Array} responses
  * @property {Array} chapters
  * @property {Array} refs
  * @property {string} startedAt
  * @property {string|null} completedAt
+ * @property {boolean} inProgress     True until the wrap-up quiz finishes.
  */
 
 /**
@@ -119,11 +122,17 @@ export function newSession(init) {
     curriculumId: null,
     expectations: [],
     objectives: [],
+    diagnosticItems: [],
+    finalItems: [],
     responses: [],
     chapters: [],
     refs: [],
     startedAt: new Date().toISOString(),
     completedAt: null,
+    // A session is in progress from the moment it starts. Nothing used to be
+    // written until the very end, so a lesson abandoned at chapter two left no
+    // trace at all — see saveProgress() below.
+    inProgress: true,
     ...init,
   };
 }
@@ -140,6 +149,48 @@ export async function saveSession(session) {
     await promisify(tx(db, STORE_SESSIONS, 'readwrite').put(session));
   } catch (err) {
     console.warn('Local session save failed; continuing.', err);
+  }
+}
+
+/**
+ * Save mid-lesson progress.
+ *
+ * Called after the opening quiz and after each chapter. Before this existed the
+ * only write was at finish(), so closing the tab at chapter two discarded
+ * everything the learner had done — including the diagnostic they had already
+ * sat. Deliberately fire-and-forget: progress saving must never make the
+ * lesson wait, and must never be the thing that breaks it.
+ * @param {SessionRecord} session
+ */
+export function saveProgress(session) {
+  saveSession({ ...session, inProgress: true }).catch(() => {});
+}
+
+/**
+ * Read one session by id.
+ * @param {string} id
+ * @returns {Promise<SessionRecord|null>}
+ */
+export async function getSession(id) {
+  try {
+    const db = await openDb();
+    return (await promisify(tx(db, STORE_SESSIONS, 'readonly').get(id))) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete one session from the device.
+ * @param {string} id
+ */
+export async function deleteSession(id) {
+  try {
+    const db = await openDb();
+    await promisify(tx(db, STORE_SESSIONS, 'readwrite').delete(id));
+    return true;
+  } catch {
+    return false;
   }
 }
 
