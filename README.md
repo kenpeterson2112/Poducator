@@ -206,6 +206,46 @@ Rotate the passphrase per term by changing the `POD_PASSPHRASE` secret — no re
 6. **Enable GitHub Pages** (Settings → Pages → `main` / root). All asset paths are relative, so it
    works under `/Poducator/` unchanged.
 
+## Saved lessons and demo mode
+
+Every lesson is saved to the device as it runs — **after the opening quiz and after each chapter**,
+not only at the end. A learner who closes the tab at chapter two keeps what they did, and the
+library labels it *unfinished*. **Saved lessons** in the header lists everything on the device.
+
+Nothing in the library has been sent anywhere. It is IndexedDB on that device.
+
+### The `.poducator` file
+
+A session exports to a single JSON file (`js/sessionfile.js`) carrying the lesson metadata,
+objectives, full chapter transcripts, checkpoints, assessment items, responses and results. Export
+from the result screen or any library row.
+
+Because saving and demoing want the same thing, **a saved session and a hand-authored one are the
+same format**. That is what makes the next part work.
+
+### Demo mode — iterate without paying per run
+
+Open a `.poducator` file from the library and it plays through the real player with **zero API
+calls**. No key, no passphrase, works with the network off entirely.
+
+So to iterate on the experience without spending anything:
+
+1. Ask Claude, in a normal conversation, to write a podcast in the `.poducator` format — hand it
+   [`demo/sample-lesson.poducator`](demo/sample-lesson.poducator) as the shape to copy.
+2. Save the reply as a `.poducator` file.
+3. Open it under **Saved lessons → Open a lesson file**.
+
+Checkpoints stay live during a replay, so the interaction demos properly. What a replay will *not*
+do is re-plan: it plays the chapters in the file, in order, because they are already written. If
+you want to demo the reteach branch, put a reteach chapter in the file.
+
+A hand-authored file needs very little — a topic and one chapter with dialogue lines. Everything
+else is optional and gets filled in on load, so these are quick to write by hand.
+
+**What a saved podcast is not: audio.** Browser TTS synthesizes speech live and never produces a
+file. A saved lesson is the transcript, and replaying re-runs TTS over it — which costs nothing.
+Downloadable audio arrives with the ElevenLabs swap, not before.
+
 ### Running it locally
 
 Leave `PROXY_URL` empty and the app falls back to asking for a pasted API key, exactly as before —

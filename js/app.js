@@ -45,6 +45,7 @@ import * as curriculum from './curriculum/index.js';
 import { CURRICULUM, byStrand } from './curriculum/ontario-sci-7-d.js';
 import * as tts from './tts.js';
 import * as store from './store.js';
+import * as sessionfile from './sessionfile.js';
 import * as ui from './ui.js';
 
 /** @type {Object|null} */
@@ -65,6 +66,11 @@ function main() {
     onRestart,
     onSelectionChange: refreshLessonLink,
     onPreviewLesson,
+    onExportSession,
+    onImportFile,
+    onPlaySaved,
+    onDeleteSession,
+    onOpenLibrary: openLibrary,
   });
   ui.setCredentialMode(usingProxy());
   ui.setPassphrase(localStorage.getItem(PASSPHRASE_STORAGE_KEY) ?? '');
@@ -86,6 +92,13 @@ function main() {
  */
 function route() {
   onRestart({ silent: true });
+
+  if (location.hash === '#saved') {
+    lesson = null;
+    showLibrary();
+    return;
+  }
+
   lesson = curriculum.parseLessonConfig(location.hash);
 
   if (lesson) {
@@ -186,6 +199,10 @@ async function onStart() {
       curriculumId: CURRICULUM.id,
       expectations: lesson.codes,
       objectives,
+      // Items travel with the session so a saved file rereads the questions it
+      // actually asked, and a replay can ask them without the item bank.
+      diagnosticItems: diagnostic,
+      finalItems: final,
     }),
   };
 
@@ -273,6 +290,11 @@ async function runDiagnostic() {
   if (run.chapterQueue.length === 0) {
     throw new Error('Could not build a lesson plan from that selection.');
   }
+
+  // First save point. Everything before this — three answered questions — used
+  // to vanish if the learner closed the tab during chapter one.
+  run.session.responses = run.responses;
+  store.saveProgress(run.session);
   return true;
 }
 
@@ -339,12 +361,23 @@ async function teach() {
     run.lastCheckpoint = { objectiveText: planned.objectiveText, outcome };
     run.playedChapters.push({
       objectiveId: planned.objectiveId,
+      objectiveShort: planned.objectiveShort,
+      objectiveText: planned.objectiveText,
       status: planned.status,
       isReteach: Boolean(planned.isReteach),
       lines: generated.lines,
+      // The checkpoint is kept, not just its outcome: replaying a session has
+      // to be able to ask the question again, and a hand-authored demo file
+      // needs somewhere to put one.
+      checkpoint: generated.checkpoint,
       summary: generated.summary,
       outcome,
     });
+
+    // Save after every chapter, so an interrupted lesson keeps what it played.
+    run.session.responses = run.responses;
+    run.session.chapters = run.playedChapters;
+    store.saveProgress(run.session);
 
     // Adapt the remaining plan to how the check went (spec §6).
     run.chapterQueue = objectivesLib.applyCheckpoint(
@@ -520,8 +553,163 @@ async function finish() {
   run.session.responses = run.responses;
   run.session.chapters = run.playedChapters;
   run.session.completedAt = new Date().toISOString();
+  run.session.inProgress = false;
   await store.enqueue(run.session);
+  ui.setResultSession(run.session);
   reportPending();
+}
+
+/* ------------------------------------------------------------------ */
+/* Saved lessons: library, import, replay                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Open the library.
+ *
+ * Routes through the hash so the view is linkable and the back button works —
+ * but setting location.hash to the value it already holds fires no hashchange,
+ * so route() would never run. That is not hypothetical: it is the main demo
+ * loop (open library → import a file → click back to the library), where the
+ * hash is already '#saved' the whole time and the button appeared dead.
+ */
+function openLibrary() {
+  if (location.hash === '#saved') {
+    onRestart({ silent: true }); // stop any replay still playing
+    showLibrary();
+  } else {
+    location.hash = '#saved';
+  }
+}
+
+/** Render the library from whatever is on this device. */
+async function showLibrary() {
+  const sessions = await store.listSessions();
+  ui.renderLibrary(sessions);
+  ui.showView('library');
+}
+
+/** Export the session behind the result screen (or a library row) as a file. */
+function onExportSession(session) {
+  try {
+    sessionfile.download(session);
+  } catch (err) {
+    // assertNoIdentity throws here if a future change ever puts a name in a
+    // session. Surfacing it loudly is the point — see sessionfile.js.
+    ui.setLibraryStatus(err?.message ?? 'Could not export that session.', true);
+  }
+}
+
+/** Delete a saved session from the device. */
+async function onDeleteSession(id) {
+  await store.deleteSession(id);
+  showLibrary();
+}
+
+/**
+ * Import a `.poducator` file and play it. This is demo mode: a hand-authored
+ * podcast plays through the real player with ZERO API calls, so iterating on
+ * the experience costs nothing.
+ * @param {File} file
+ */
+async function onImportFile(file) {
+  try {
+    const session = sessionfile.parseFile(await file.text());
+    // Imported sessions are saved like any other, so a demo file opened once
+    // stays in the library rather than needing the file again.
+    await store.saveSession({ ...session, inProgress: false });
+    replay(session);
+  } catch (err) {
+    ui.setLibraryStatus(err?.message ?? 'Could not read that file.', true);
+  }
+}
+
+/** Play a saved session from the library. */
+async function onPlaySaved(id) {
+  const session = await store.getSession(id);
+  if (!session) return ui.setLibraryStatus('That session is no longer on this device.', true);
+  replay(session);
+}
+
+/**
+ * Replay a stored or imported session.
+ *
+ * Deliberately NOT the adaptive loop in teach(): a replay plays what happened,
+ * in the order it happened, rather than re-deciding it. The checkpoints are
+ * still live — you can answer them — because demoing the experience means
+ * demoing that interaction, but answering cannot change which chapter comes
+ * next, since the next chapter is already written.
+ *
+ * Makes no API calls. That is the whole point.
+ * @param {Object} session
+ */
+async function replay(session) {
+  const objectives = session.objectives ?? [];
+
+  state = {
+    runId: ++runCounter,
+    lessonTitle: session.topic || 'Saved lesson',
+    gradeBand: session.gradeBand,
+    objectives,
+    diagnosticItems: session.diagnosticItems ?? [],
+    finalItems: session.finalItems ?? [],
+    sourcesByCode: new Map(),
+    responses: [],
+    gaps: [],
+    chapterQueue: [],
+    playedChapters: [],
+    retaught: new Set(),
+    priorSummary: '',
+    lastCheckpoint: null,
+    credentials: null, // nothing here may call the API
+    session: null, // a replay does not overwrite the record it came from
+    isReplay: true,
+  };
+  const run = state;
+
+  ui.renderReferences(session.refs ?? []);
+  ui.clearTranscript();
+  ui.showView('player');
+
+  const chapters = session.chapters ?? [];
+  for (const [index, chapter] of chapters.entries()) {
+    if (!isCurrentRun(run)) return;
+
+    ui.setChapterHeader(
+      run.lessonTitle,
+      `Chapter ${index + 1} of ${chapters.length}`,
+      chapter.isReteach ? `Another look at: ${chapter.objectiveShort}` : chapter.objectiveShort,
+      chapter.objectiveId
+    );
+    ui.renderChapterLines(chapter.lines);
+
+    const outcome = await playChapter(chapter, {
+      objectiveId: chapter.objectiveId,
+      objectiveShort: chapter.objectiveShort,
+      objectiveText: chapter.objectiveText,
+      status: chapter.status,
+    });
+    if (!isCurrentRun(run)) return;
+
+    run.playedChapters.push({ ...chapter, outcome });
+  }
+
+  // A replay runs the wrap-up quiz when the file carries one, so the demo ends
+  // where a real lesson ends.
+  if (run.finalItems.length > 0) {
+    await runFinalQuiz();
+    if (!isCurrentRun(run)) return;
+  }
+
+  const growth = assessment.growth(
+    // A replay has no fresh diagnostic, so the baseline is whatever the saved
+    // session recorded. Imported demo files often have none, and renderResult
+    // says so rather than inventing one.
+    (session.responses ?? []).filter((r) => r.phase === 'diagnostic'),
+    run.responses.filter((r) => r.phase === 'final')
+  );
+  ui.renderResult(growth, objectives, run.gaps);
+  ui.setResultSession(session);
+  ui.showView('result');
 }
 
 /* ------------------------------------------------------------------ */

@@ -15,7 +15,7 @@
  * Bump CACHE_VERSION on any shell change — old caches are cleared on activate.
  */
 
-const CACHE_VERSION = 'poducator-v2';
+const CACHE_VERSION = 'poducator-v3';
 
 const SHELL = [
   './',
@@ -28,6 +28,7 @@ const SHELL = [
   './js/claude.js',
   './js/tts.js',
   './js/store.js',
+  './js/sessionfile.js',
   './js/assessment.js',
   './js/objectives.js',
   './js/sources/index.js',
