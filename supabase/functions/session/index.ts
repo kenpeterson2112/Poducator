@@ -1,27 +1,31 @@
 /**
  * supabase/functions/session — the server seam (spec §7, §8).
  *
- * Phase 2 wires this up. It ships now, unwired, because its shape constrains
- * the client design and reviewing it alongside the schema is the point.
- *
  * It does exactly two things, and deliberately nothing else:
  *
  *   generate        proxies a Claude call so the API key never reaches a
- *                   student's browser
+ *                   learner's browser
  *   record_session  writes a completed session and its responses
  *
- * It holds the service-role key, so it is the ONLY path through which student
- * data reaches the database (the student tables have no anon-role policies at
- * all — see 0001_init.sql). That concentration is intentional: one audited
- * choke point beats permissions scattered across a client.
+ * Every request is gated on the class passphrase first (checkPassphrase). That
+ * check lives HERE and not in the browser on purpose: a client-side check is
+ * decorative, because anything the client compares a learner can read in
+ * DevTools along with whatever key it was guarding.
+ *
+ * It also holds the service-role key, so it is the ONLY path through which
+ * learner data reaches the database (the student tables have no anon-role
+ * policies at all — see 0001_init.sql). That concentration is intentional: one
+ * audited choke point beats permissions scattered across a client.
  *
  * Deploy:
  *   supabase functions deploy session --no-verify-jwt
- *   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+ *   supabase secrets set ANTHROPIC_API_KEY=sk-ant-... POD_PASSPHRASE=ETEC523
  *
- * --no-verify-jwt is required because students are never authenticated. The
- * class code is the only credential, which is why validateClass() below is
- * load-bearing rather than a formality.
+ * --no-verify-jwt is required because learners are never authenticated and
+ * hold no JWT. With verification on, the platform rejects every request before
+ * this file runs and the passphrase gate never gets a say — which presents as
+ * "the passphrase is broken". supabase/config.toml sets the same flag for
+ * git-based deploys.
  */
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';

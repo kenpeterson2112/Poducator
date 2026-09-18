@@ -187,9 +187,10 @@ export const API_KEY_STORAGE_KEY = 'poducator_api_key';
  * that function's environment and never appear in this repo.
  *
  * Empty string = local development mode: the app falls back to asking for a
- * pasted API key, exactly as it did before the gate existed.
+ * pasted API key, exactly as it did before the gate existed. Blank it locally
+ * if you want that fallback back; leave it set for anything learners touch.
  */
-export const PROXY_URL = '';
+export const PROXY_URL = 'https://dmvikgkwyybswabyrgni.supabase.co/functions/v1/session';
 
 /** localStorage key for the class passphrase, so a learner types it once. */
 export const PASSPHRASE_STORAGE_KEY = 'poducator_passphrase';
