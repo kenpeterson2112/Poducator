@@ -206,6 +206,49 @@ Rotate the passphrase per term by changing the `POD_PASSPHRASE` secret — no re
 6. **Enable GitHub Pages** (Settings → Pages → `main` / root). All asset paths are relative, so it
    works under `/Poducator/` unchanged.
 
+## Two modes
+
+Poducator has two front doors, sharing one player, one TTS engine, one
+assessment layer and one session format.
+
+### Student mode — the default
+
+Open the app and you get a topic box. Type what you need to learn, pick how long
+you've got (~5 / ~10 / ~20 minutes), and go. Sources are found and confirmed
+automatically; an ambiguous topic ("mercury") asks which you meant **before**
+spending any generation call.
+
+**Student mode does not score, deliberately.** The two or three opening
+questions are *optional*, and they **steer** the lesson rather than grade it —
+they feed the same gap profile, so the idea you're shakiest on gets taught
+first. They are never reported back as a result.
+
+That's an honest limit, not a missing feature. Two things make a score
+unsupportable here:
+
+1. With an optional opener, most sessions have **no baseline** — and a growth
+   number with nothing to compare against is not a measurement.
+2. There is **no item bank** for an arbitrary topic, so Claude would be writing
+   the questions *and* teaching the content. Curriculum mode avoids this with
+   hand-authored items; student mode cannot.
+
+So the end screen is a wrap-up: what was covered, and what's worth another look
+based on the checks along the way.
+
+Length buys **more ground covered**, not more words per idea — the minute budget
+mostly sets how many objectives get derived. It also gently scales chapter
+depth, on top of the existing per-objective sizing in `js/objectives.js`, so a
+misconception chapter stays longer than a solid one at every length.
+
+### Curriculum mode — `#teach`
+
+Unchanged: an educator picks 1–3 Ontario Grade 7 Science expectations, gets a
+link, and the learner opens a lesson locked to exactly those. This path **is**
+scored, because its items are hand-authored (`js/curriculum/items.js`) and the
+opening quiz is mandatory — so the before/after comparison means something.
+
+Existing `#e=…` lesson links keep working exactly as before.
+
 ## Saved lessons and demo mode
 
 Every lesson is saved to the device as it runs — **after the opening quiz and after each chapter**,

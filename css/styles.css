@@ -13,17 +13,38 @@
  *    lesson covers should be looking at recognisably the same object.
  */
 
+/*
+ * BRAND PALETTE
+ *
+ * Navy / orange / mint. The landing page wears it hardest (a two-tone split),
+ * but the tokens are shared so the rest of the app doesn't feel like a
+ * different product the moment a learner presses Generate.
+ *
+ * Mint is the accent everywhere; orange is reserved for the primary ACTION so
+ * it keeps its force. If orange also becomes a decorative colour it stops
+ * meaning "press this".
+ */
 :root {
+  --navy: #161c24;
+  --navy-soft: #2a3441;
+  --navy-line: #3a4759;
+  --orange: #ff9900;
+  --orange-action: #e85d04;
+  --mint: #5dd3ad;
+  --muted: #8c9bb0;
+
   --bg: #f6f7f9;
   --surface: #ffffff;
   --ink: #16202b;
   --ink-soft: #5b6875;
   --line: #dfe4ea;
-  --accent: #2f6f5e;
-  --accent-soft: #e6f0ed;
+  /* Mint is light on white, so the light theme uses a darkened mint for text
+     and borders — same hue, enough contrast to read. */
+  --accent: #1f8f6d;
+  --accent-soft: #e4f6f0;
   --warn: #b4531f;
   --warn-soft: #fdf0e6;
-  --host-a: #2f6f5e;
+  --host-a: #1f8f6d;
   --host-b: #4a5fa8;
   --radius: 10px;
   --measure: 44rem;
@@ -31,16 +52,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #12181f;
+    --bg: var(--navy);
     --surface: #1b232c;
     --ink: #e8edf2;
     --ink-soft: #9aa7b4;
-    --line: #2c3742;
-    --accent: #6cbfa6;
+    --line: var(--navy-line);
+    --accent: var(--mint);
     --accent-soft: #1e2f2a;
     --warn: #e0955f;
     --warn-soft: #2e2419;
-    --host-a: #6cbfa6;
+    --host-a: var(--mint);
     --host-b: #8fa2e0;
   }
 }
@@ -64,7 +85,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.55 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -537,3 +558,324 @@ body {
   margin-top: 1.5rem;
 }
 .result-actions .btn { width: auto; flex: 1 1 auto; text-align: center; }
+
+/* ---------- Student mode ---------- */
+
+.student-form { display: grid; gap: 1.1rem; }
+
+.checkbox {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.75rem 0.85rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.checkbox input { margin-top: 0.25rem; flex: none; }
+.checkbox small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.student-teach-link {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+.student-teach-link a { color: var(--accent); }
+
+/* ==================================================================== */
+/* LANDING PAGE                                                         */
+/*                                                                      */
+/* The one screen that commits fully to the brand: a two-tone split,    */
+/* orange over navy. It ignores the light/dark tokens on purpose —      */
+/* this is an identity moment, and it should look the same to everyone. */
+/* ==================================================================== */
+
+/* Full bleed: .app-main's max-width and padding are dropped for this view by
+   the --bleed modifier that js/ui.js:showView sets, so the two-tone split can
+   reach the screen edges. */
+.app-main--bleed {
+  max-width: none;
+  padding: 0;
+}
+
+.landing {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+/* Roughly the 45/55 split, but as a MINIMUM rather than a fixed height:
+   a locked 45vh would clip the form on a short phone in landscape. */
+.landing__hero {
+  flex: 0 0 auto;
+  min-height: 42vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--orange);
+  padding: 0 1rem 0.5rem;
+}
+
+.landing__panel {
+  flex: 1 1 auto;
+  background: var(--navy);
+  color: #fff;
+  padding: 1.75rem 1rem 2.5rem;
+}
+
+/* ---------- Brand bar ---------- */
+
+.brandbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 0 0.25rem;
+}
+.brandbar__mark { display: flex; align-items: center; gap: 0.5rem; }
+.brandbar__logo { width: 32px; height: 32px; display: block; }
+.brandbar__logo svg { width: 100%; height: 100%; display: block; }
+.brandbar__word {
+  font-weight: 600;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: var(--navy);
+}
+
+.iconbtn {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--navy);
+  cursor: pointer;
+}
+.iconbtn:hover { background: rgba(22, 28, 36, 0.1); }
+.iconbtn:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+.iconbtn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- Hero illustration ---------- */
+
+.hero-art {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: end center;
+  min-height: 0;
+}
+.hero-art svg {
+  width: min(100%, 22rem);
+  height: auto;
+  display: block;
+}
+
+/* ---------- Panel copy ---------- */
+
+.landing__heading {
+  margin: 0 0 0.4rem;
+  font-size: 18px;
+  font-weight: 500;
+  text-align: center;
+  color: #fff;
+}
+.landing__sub {
+  margin: 0 auto 1.5rem;
+  max-width: 34rem;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* ---------- Fields ---------- */
+
+.landing-form { display: grid; gap: 0.85rem; }
+
+.lfield { position: relative; }
+
+.lfield__input {
+  width: 100%;
+  padding: 0.95rem 3rem 0.95rem 1rem;
+  font: 15px/1.4 inherit;
+  color: var(--muted);
+  background: var(--navy-soft);
+  border: 1px solid var(--navy-line);
+  border-radius: 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+.lfield__input::placeholder { color: var(--muted); }
+.lfield__input:focus { outline: none; }
+
+/*
+ * Filled AND focused both light up. `.is-filled` is set by js/ui.js because
+ * CSS alone can't tell a select with a chosen value from its default, and a
+ * learner who has answered something should see that it registered.
+ */
+.lfield__input:focus,
+.lfield__input.is-filled {
+  color: var(--mint);
+  background: rgba(93, 211, 173, 0.08);
+  border: 2px solid var(--mint);
+  padding: calc(0.95rem - 1px) calc(3rem - 1px) calc(0.95rem - 1px) calc(1rem - 1px);
+}
+
+/*
+ * Resting "filled" is stated quietly; focus is the loud one.
+ *
+ * The selects carry defaults, so they are filled from the moment the page
+ * loads. At full glow that put three competing halos on screen next to a
+ * glowing button, and the empty topic field — the one actually needing
+ * input — became the dimmest thing on the page. Keeping the strong glow for
+ * focus alone restores that hierarchy without losing the state.
+ */
+.lfield__input.is-filled { box-shadow: 0 0 6px rgba(93, 211, 173, 0.18); }
+.lfield__input:focus { box-shadow: 0 0 10px rgba(93, 211, 173, 0.4); }
+
+.lfield__icon {
+  position: absolute;
+  top: 50%;
+  right: 0.9rem;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+.lfield__icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lfield__input:focus ~ .lfield__icon,
+.lfield__input.is-filled ~ .lfield__icon { color: var(--mint); }
+
+.lfield__input option { color: #fff; background: var(--navy-soft); }
+
+/* ---------- Quick-check toggle ---------- */
+
+.ltoggle {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  background: var(--navy-soft);
+  border: 1px solid var(--navy-line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.ltoggle input { margin-top: 0.2rem; flex: none; accent-color: var(--mint); }
+.ltoggle__text { font-size: 14px; color: #fff; }
+.ltoggle__text small {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* ---------- Call to action ---------- */
+
+/*
+ * Orange fill with a mint rim and glow. Orange is reserved for this one
+ * control in the whole app, so it never has to compete to read as "press me".
+ */
+.cta {
+  margin-top: 0.4rem;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  font: 700 16px/1 inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--orange-action);
+  border: 0;
+  border-radius: 24px;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 2px rgba(93, 211, 173, 0.8),
+    0 4px 15px rgba(93, 211, 173, 0.3);
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+.cta:hover {
+  box-shadow:
+    0 0 0 2px rgba(93, 211, 173, 0.95),
+    0 6px 22px rgba(93, 211, 173, 0.45);
+}
+.cta:active { transform: translateY(1px); }
+.cta:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+
+/* ---------- Panel-scoped overrides ---------- */
+
+.landing__panel .status { color: var(--muted); text-align: center; }
+.landing__panel .status--error { color: #ffb4a0; }
+.landing__panel .student-teach-link {
+  border-top-color: rgba(255, 255, 255, 0.12);
+  text-align: center;
+  color: var(--muted);
+}
+.landing__panel .student-teach-link a { color: var(--mint); }
+.landing__panel .panel {
+  background: var(--navy-soft);
+  border-color: var(--mint);
+  color: #fff;
+}
+.landing__panel .panel .btn {
+  color: #fff;
+  background: var(--navy);
+  border-color: var(--navy-line);
+}
+.landing__panel .candidate__desc { color: var(--muted); }
+
+/* Wider screens: the split still reads, the content just stops stretching. */
+@media (min-width: 46rem) {
+  .landing__hero { min-height: 38vh; padding-bottom: 1rem; }
+  /* width:100% is load-bearing on .brandbar: it is a flex ITEM of the hero
+     column, and an auto inline margin overrides the default stretch, so
+     without it the bar shrinks to fit its contents and the icons bunch up
+     around the wordmark instead of sitting at the edges. */
+  .brandbar { width: 100%; max-width: var(--measure); margin-inline: auto; }
+  .landing__panel > * { max-width: var(--measure); margin-inline: auto; }
+  .landing__panel { padding-inline: 2rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lfield__input,
+  .lfield__icon,
+  .cta { transition: none; }
+}
+
+.landing__disclaimer {
+  margin: 1.75rem auto 0;
+  max-width: 32rem;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}

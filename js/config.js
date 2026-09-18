@@ -62,7 +62,67 @@ export const CHAPTER_SHAPE = Object.freeze({
  * the reteach branch (spec §6) to insert one more per expectation when a
  * checkpoint is missed — so a three-expectation lesson can reach six chapters.
  */
-export const CHAPTER_BOUNDS = Object.freeze({ min: 1, max: 6 });
+export const CHAPTER_BOUNDS = Object.freeze({ min: 1, max: 8 });
+
+/** How many candidate articles the "which did you mean?" step offers. */
+export const CANDIDATE_COUNT = 3;
+
+/**
+ * Podcast length, student mode only (P2).
+ *
+ * Minutes is what a learner actually thinks in ("I have the bus ride"), so that
+ * is what the UI offers. Two things it maps to, and the split matters:
+ *
+ *   objectives  — how much GROUND the lesson covers. Extra minutes buy more
+ *                 ideas, not more words about one idea.
+ *   depthScale  — a gentle multiplier on js/objectives.js:depthFor(), which
+ *                 already sizes each chapter by how well the diagnostic says
+ *                 the learner knows it (CHAPTER_DEPTH above). Scaling rather
+ *                 than replacing keeps that: a misconception chapter stays
+ *                 longer than a solid one at every length.
+ *
+ * `estMinutesPerExchange` is only for the up-front "about N minutes" label.
+ * Once chapters exist the estimate is recomputed from their real text — see
+ * estimateMinutes() below — because a promised 10 that runs 13 is worse than
+ * an honest approximation.
+ */
+export const LENGTHS = Object.freeze({
+  short: { label: 'About 5 minutes', minutes: 5, objectives: 3, depthScale: 0.8 },
+  standard: { label: 'About 10 minutes', minutes: 10, objectives: 5, depthScale: 1.0 },
+  deep: { label: 'About 20 minutes', minutes: 20, objectives: 7, depthScale: 1.3 },
+});
+
+export const DEFAULT_LENGTH = 'standard';
+
+/**
+ * Words per minute for turning text into a time estimate. Browser TTS runs
+ * near a normal speaking pace at rate 1.0; this is deliberately a round number
+ * because the label says "about".
+ */
+export const SPEECH_WPM = 150;
+
+/**
+ * Estimate how long some dialogue takes to speak.
+ * @param {Array<{text: string}>} lines
+ * @returns {number} minutes, rounded to the nearest whole minute (min 1)
+ */
+export function estimateMinutes(lines) {
+  const words = lines.reduce((n, l) => n + String(l?.text ?? '').split(/\s+/).filter(Boolean).length, 0);
+  return Math.max(1, Math.round(words / SPEECH_WPM));
+}
+
+/**
+ * Scale a chapter depth by the chosen length.
+ * @param {{minExchanges: number, maxExchanges: number}} depth
+ * @param {number} scale
+ */
+export function scaleDepth(depth, scale) {
+  const clamp = (n) => Math.max(3, Math.min(16, Math.round(n * scale)));
+  return { minExchanges: clamp(depth.minExchanges), maxExchanges: clamp(depth.maxExchanges) };
+}
+
+/** How many questions the optional student-mode opener asks (spec: 2-3 tops). */
+export const STUDENT_DIAGNOSTIC_ITEMS = Object.freeze({ min: 2, max: 3 });
 
 /**
  * How many closing exchanges form the checkpoint window (spec §6): Host A's

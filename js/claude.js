@@ -22,7 +22,10 @@
  * the JSON parses.
  */
 
-import { CLAUDE, CHAPTER_SHAPE, HOSTS, ASSESSMENT, GRADE_BANDS, DEFAULT_GRADE_BAND } from './config.js';
+import {
+  CLAUDE, CHAPTER_SHAPE, HOSTS, ASSESSMENT, GRADE_BANDS, DEFAULT_GRADE_BAND,
+  STUDENT_DIAGNOSTIC_ITEMS,
+} from './config.js';
 
 /* ------------------------------------------------------------------ */
 /* Schema                                                              */
@@ -342,4 +345,186 @@ async function callClaude(prompt, schema, opts) {
 export async function chapter(input, opts) {
   const text = await callClaude(buildChapterPrompt(input), CHAPTER_SCHEMA, opts);
   return parseChapterResponse(text, input.chapter.objectiveId);
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Student mode: lesson planning (P2)                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Curriculum mode needs none of this — its objectives and items are authored by
+ * hand (js/curriculum/items.js), which is what resolved spec §11's conflict of
+ * interest. A learner typing their own topic has no such bank, so objectives
+ * and the opening questions must be derived from the source material.
+ *
+ * That conflict therefore RETURNS, for student mode only: the model writes the
+ * questions and then teaches the content. Two things keep it honest:
+ *
+ *   1. Student mode does not score. The opener STEERS the lesson (it feeds the
+ *      gap profile) and is never reported back as a measurement — so there is
+ *      no grade for the model to have marked its own homework on.
+ *   2. Objectives and questions are produced BEFORE any chapter is written, so
+ *      the teaching is fitted to the questions rather than the reverse.
+ *
+ * Neither makes the conflict disappear. They keep it from mattering.
+ */
+
+const PLAN_SCHEMA = {
+  type: 'object',
+  properties: {
+    objectives: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          short: { type: 'string' },
+          text: { type: 'string' },
+        },
+        required: ['id', 'short', 'text'],
+        additionalProperties: false,
+      },
+    },
+    diagnostic: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          objectiveId: { type: 'string' },
+          prompt: { type: 'string' },
+          choices: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                text: { type: 'string' },
+                misconception: { type: 'string' },
+              },
+              required: ['text'],
+              additionalProperties: false,
+            },
+          },
+          correctIndex: { type: 'integer' },
+          explanation: { type: 'string' },
+        },
+        required: ['objectiveId', 'prompt', 'choices', 'correctIndex', 'explanation'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['objectives', 'diagnostic'],
+  additionalProperties: false,
+};
+
+/**
+ * Build the planning prompt for a student-chosen topic.
+ * @param {{topic: string, source: string, gradeBand: string,
+ *          objectiveTarget: number, wantDiagnostic: boolean}} input
+ */
+export function buildPlanPrompt(input) {
+  const { topic, source, gradeBand, objectiveTarget, wantDiagnostic } = input;
+  const band = GRADE_BANDS[gradeBand] ?? GRADE_BANDS[DEFAULT_GRADE_BAND];
+
+  const system = [
+    'You plan short audio lessons built from source material a learner chose themselves.',
+    `Audience: ${band.label}. ${band.guidance}`,
+    '',
+    'Rules:',
+    `- Derive exactly ${objectiveTarget} learning objectives from the source material, ordered so ` +
+      'prerequisites come first.',
+    '- Each objective is ONE specific, checkable thing a learner could demonstrate — "Explain why X ' +
+      'causes Y", never "Understand X". Give them ids OBJ-1, OBJ-2, and so on.',
+    '- "short" is a few words for a heading; "text" is the full objective.',
+    '- Objectives must be supported by the source material. Do not invent scope it cannot teach.',
+    ...(wantDiagnostic
+      ? [
+          '',
+          `- Write ${STUDENT_DIAGNOSTIC_ITEMS.min}-${STUDENT_DIAGNOSTIC_ITEMS.max} opening questions. ` +
+            'These do NOT grade the learner — they decide which objective the lesson teaches first, ' +
+            'so aim them at the ideas most likely to be misunderstood.',
+          `- Each question has exactly ${ASSESSMENT.choicesPerItem} choices. Do NOT add a "not sure" ` +
+            'choice; the app adds one.',
+          '- Open on a concrete situation, not a definition.',
+          '- Every wrong choice must encode a REAL misconception a learner actually holds, and carry ' +
+            'a short kebab-case "misconception" slug naming it. The correct choice omits the slug. ' +
+            'Throwaway distractors waste the question.',
+          '- "correctIndex" is the 0-based index of the right choice. Vary its position.',
+          '- "explanation" is one or two sentences for someone who just got it wrong. No blame.',
+        ]
+      : ['', '- Return an empty "diagnostic" array: this learner skipped the opening questions.']),
+  ].join('\n');
+
+  const user = [
+    `Topic the learner asked for: ${topic}`,
+    '',
+    '<source_material>',
+    source,
+    '</source_material>',
+    '',
+    'Plan the lesson now.',
+  ].join('\n');
+
+  return { system, messages: [{ role: 'user', content: user }] };
+}
+
+/**
+ * Parse the planning response into objectives and runtime items.
+ *
+ * Items are flattened to the same shape curriculum mode produces in
+ * js/curriculum/index.js:toItem — `choices` as strings with a parallel
+ * `misconceptions` array — so everything downstream (ui.askItem, the gap
+ * profile, the session record) treats both modes identically.
+ * @param {string} raw
+ */
+export function parsePlanResponse(raw) {
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = JSON.parse(raw.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, ''));
+  }
+
+  const objectives = (data.objectives ?? [])
+    .filter((o) => typeof o?.id === 'string' && typeof o?.text === 'string' && o.text.trim())
+    .map((o) => ({ id: o.id, text: o.text.trim(), short: (o.short || o.text).trim() }));
+
+  if (objectives.length === 0) {
+    throw new Error('Could not work out what to teach from that topic — try rewording it.');
+  }
+
+  const validIds = new Set(objectives.map((o) => o.id));
+  const diagnostic = (data.diagnostic ?? [])
+    .map((raw_, i) => {
+      const choices = (raw_?.choices ?? []).filter((c) => typeof c?.text === 'string' && c.text.trim());
+      if (choices.length < 2 || !raw_.prompt?.trim()) return null;
+      // An item tagged to an objective that does not exist cannot steer
+      // anything, so it is dropped rather than silently mis-attributed.
+      if (!validIds.has(raw_.objectiveId)) return null;
+      const correctIndex =
+        Number.isInteger(raw_.correctIndex) && raw_.correctIndex >= 0 && raw_.correctIndex < choices.length
+          ? raw_.correctIndex
+          : 0;
+      return {
+        id: `diagnostic-${i + 1}`,
+        objectiveId: raw_.objectiveId,
+        prompt: raw_.prompt.trim(),
+        choices: choices.map((c) => c.text),
+        misconceptions: choices.map((c) => c.misconception ?? null),
+        correctIndex,
+        explanation: typeof raw_.explanation === 'string' ? raw_.explanation : '',
+      };
+    })
+    .filter(Boolean);
+
+  return { objectives, diagnostic };
+}
+
+/**
+ * Plan a student-mode lesson: objectives, plus the optional opening questions.
+ * @returns {Promise<{objectives: Array, diagnostic: Array}>}
+ */
+export async function plan(input, opts) {
+  const text = await callClaude(buildPlanPrompt(input), PLAN_SCHEMA, opts);
+  return parsePlanResponse(text);
 }
