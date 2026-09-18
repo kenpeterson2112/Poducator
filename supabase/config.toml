@@ -1,0 +1,20 @@
+# Supabase project config.
+#
+# This file exists for ONE load-bearing reason: `verify_jwt = false` below.
+#
+# Edge Functions default to requiring a Supabase JWT. Poducator's learners are
+# never authenticated — the class passphrase is the only credential they have —
+# so with the default every student request is rejected with a 401 by the
+# platform BEFORE the function runs, and the passphrase gate never gets a say.
+# The symptom looks like "the passphrase is broken" and the cause is here.
+#
+# This matters specifically for git-based deploys (the GitHub integration),
+# which read this file. A manual CLI deploy would instead need the equivalent
+# flag: `supabase functions deploy session --no-verify-jwt`.
+
+# Replace with your project ref (Dashboard → Project Settings → General).
+# Not a secret; `supabase link` also fills this in.
+project_id = "your-project-ref"
+
+[functions.session]
+verify_jwt = false

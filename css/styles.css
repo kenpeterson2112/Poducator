@@ -47,6 +47,19 @@
 
 * { box-sizing: border-box; }
 
+/*
+ * The `hidden` attribute must win over any layout rule.
+ *
+ * `[hidden]` in the UA stylesheet is only `display: none`, so any author rule
+ * that sets `display` — `.field { display: block }` below, for one — silently
+ * overrides it and the element stays on screen. That bit the credential
+ * fields: both the passphrase and the dev API-key box rendered at once
+ * regardless of mode. Making it `!important` here fixes the whole class of
+ * bug rather than the one instance, since js/ui.js toggles `.hidden`
+ * throughout.
+ */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);

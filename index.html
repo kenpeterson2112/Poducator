@@ -86,8 +86,28 @@
     <ul id="locked-expectations" class="locked-expectations"></ul>
 
     <form id="start-form" class="start-form" autocomplete="off">
-      <label class="field">
-        <span class="field__label">Claude API key</span>
+      <!-- What a learner sees. The passphrase is checked by the server, never
+           here — a browser-side check would be decorative. -->
+      <label class="field" id="passphrase-field" hidden>
+        <span class="field__label">Class passphrase</span>
+        <input
+          id="passphrase-input"
+          class="field__input"
+          type="password"
+          name="passphrase"
+          placeholder="ETEC523"
+          autocomplete="off"
+        />
+        <small class="field__hint">
+          The passphrase your teacher gave you. No account, no API key — the key
+          stays on the server and never reaches this browser.
+        </small>
+      </label>
+
+      <!-- Local-development fallback. Unhidden by js/ui.js ONLY when no proxy
+           URL is configured in js/config.js, so learners never meet it. -->
+      <label class="field" id="devkey-field" hidden>
+        <span class="field__label">Claude API key <small>(local dev)</small></span>
         <input
           id="api-key-input"
           class="field__input"
@@ -95,12 +115,12 @@
           name="apiKey"
           placeholder="sk-ant-…"
           autocomplete="off"
-          required
         />
         <small class="field__hint">
-          Phase 1 only. The key stays in this browser and goes straight to
-          api.anthropic.com. Students will never see this field — Phase 2 moves
-          it behind a server function (spec §7).
+          No server function is configured, so this build talks to
+          api.anthropic.com directly with a key you paste. Set
+          <code>PROXY_URL</code> in <code>js/config.js</code> to switch to the
+          passphrase flow.
         </small>
       </label>
 

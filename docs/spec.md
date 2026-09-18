@@ -197,6 +197,36 @@ contradictory. They aren't — they just require the mapping to live somewhere o
 
 Net: anonymous by construction, de-anonymizable only by the teacher holding the roster.
 
+### 7a. The class passphrase — a separate thing from the class code
+
+Two credentials exist and they are deliberately not the same mechanism:
+
+| | **Class passphrase** (`ETEC523`) | **Class code** (Phase 2) |
+|---|---|---|
+| Purpose | Gates the app at all | Identifies which lesson/roster |
+| Scope | One per deployment | One per lesson |
+| Header | `x-poducator-pass` | `x-poducator-class` |
+| Checked against | `POD_PASSPHRASE` secret | the `lessons` table |
+
+Conflating them would break the roster model, so they stay distinct headers with distinct checks.
+
+**The passphrase is validated server-side, in the Edge Function, never in the browser.** This is the
+whole point: a client-side check is decorative, because anything the client compares, a learner can
+read in DevTools along with whatever it was guarding. The same reasoning rules out ever committing a
+key to this repo — it is public, so a committed key is a published key, and git history keeps it
+published after any later removal.
+
+What the gate buys, stated precisely:
+
+- It **does** keep the Anthropic key secret. The key exists only as a function secret; it is never
+  in the repo and never in a browser. That guarantee is complete.
+- It **does not** authenticate anyone. A shared passphrase gets shared. The control that actually
+  bounds a leaked passphrase is a **spend limit on the Anthropic key**. The function's per-IP rate
+  limiter is a speed bump, not a quota — Edge instances are ephemeral, so it cannot be relied on as
+  one.
+
+Rotating the passphrase each term is a secret change, not a deploy.
+
 See [`privacy.md`](privacy.md) for the version to hand a school.
 
 ## 8. Data flow / API calls

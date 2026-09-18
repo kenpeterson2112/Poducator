@@ -179,6 +179,30 @@ export const CLAUDE = Object.freeze({
 export const API_KEY_STORAGE_KEY = 'poducator_api_key';
 
 /**
+ * Deployed Edge Function URL, e.g.
+ *   https://<project-ref>.supabase.co/functions/v1/session
+ *
+ * NOT a secret — a function URL is meant to be public, and committing it is
+ * correct. The secrets (the Anthropic key and the class passphrase) live in
+ * that function's environment and never appear in this repo.
+ *
+ * Empty string = local development mode: the app falls back to asking for a
+ * pasted API key, exactly as it did before the gate existed.
+ */
+export const PROXY_URL = '';
+
+/** localStorage key for the class passphrase, so a learner types it once. */
+export const PASSPHRASE_STORAGE_KEY = 'poducator_passphrase';
+
+/**
+ * Which credential mode is active. UI and orchestrator both read this so they
+ * cannot disagree about which field the learner is being asked for.
+ */
+export function usingProxy() {
+  return PROXY_URL.trim().length > 0;
+}
+
+/**
  * The two hosts (spec §5). Host B is the load-bearing one: a learner-companion
  * who voices the confusion the student won't ask aloud. `voiceHint` is used by
  * tts.js when picking/tuning a Web Speech voice.

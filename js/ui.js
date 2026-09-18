@@ -58,6 +58,9 @@ export function init() {
   els.lessonCurriculum = byId('lesson-curriculum');
   els.lockedExpectations = byId('locked-expectations');
   els.startForm = byId('start-form');
+  els.passphraseField = byId('passphrase-field');
+  els.passphraseInput = byId('passphrase-input');
+  els.devKeyField = byId('devkey-field');
   els.apiKeyInput = byId('api-key-input');
   els.startStatus = byId('start-status');
 
@@ -94,12 +97,31 @@ export function showView(name) {
   }
 }
 
+/**
+ * Show whichever credential field this build actually uses, and mark it
+ * required. Driven by config.usingProxy() so the UI and the orchestrator can
+ * never disagree about what the learner is being asked for.
+ */
+export function setCredentialMode(proxied) {
+  els.passphraseField.hidden = !proxied;
+  els.devKeyField.hidden = proxied;
+  els.passphraseInput.required = proxied;
+  els.apiKeyInput.required = !proxied;
+}
+
+export function setPassphrase(value) {
+  if (value) els.passphraseInput.value = value;
+}
+
 export function setApiKey(value) {
   if (value) els.apiKeyInput.value = value;
 }
 
 export function readStart() {
-  return { apiKey: els.apiKeyInput.value.trim() };
+  return {
+    passphrase: els.passphraseInput.value.trim(),
+    apiKey: els.apiKeyInput.value.trim(),
+  };
 }
 
 export function setStatus(message, isError = false) {
