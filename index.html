@@ -1,20 +1,23 @@
 <!--
-  Poducator — lesson-oriented podcast generator (student app)
+  Poducator — curriculum-driven lesson podcast
 
   Single-page shell. Five views live in one document and are shown/hidden by the
-  state machine in js/app.js:
+  state machine in js/app.js. Which one opens is decided by the URL:
 
-    #start-view    topic + grade band + key
-    #assess-view   BOTH the opening diagnostic and the wrap-up quiz — same
-                   stage, different heading, so the student sees the two as
-                   the matched pair they are (spec §9)
-    #player-view   transcript, now-playing, and the checkpoint panel
-    #result-view   per-objective growth
+    #educator-view  no lesson in the URL — the educator picks 1-3 curriculum
+                    expectations and gets a shareable link
+    #start-view     a lesson IS in the URL — the learner sees it locked, with
+                    no control that changes what is taught
+    #assess-view    BOTH the pre-pod diagnostic and the wrap-up quiz — same
+                    stage, different heading, because they are parallel forms
+                    of the same instrument (spec §9)
+    #player-view    transcript, now-playing, and the checkpoint panel
+    #result-view    per-expectation growth
 -->
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Poducator — lessons you can talk back to</title>
-<meta name="description" content="A lesson-shaped podcast that diagnoses what you know, teaches the gaps, and checks whether it worked." />
+<meta name="description" content="A curriculum-tied lesson podcast that diagnoses what a learner thinks, teaches the gaps, and checks whether it worked." />
 <meta name="theme-color" content="#1c2a3a" />
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
@@ -29,34 +32,60 @@
 <main class="app-main">
 
   <!-- ============================================================= -->
-  <!-- START                                                          -->
+  <!-- EDUCATOR — pick the expectations, get a link                   -->
   <!-- ============================================================= -->
-  <section id="start-view" class="view view--active" aria-labelledby="start-heading">
-    <h2 id="start-heading" class="view__heading">What are you studying?</h2>
+  <section id="educator-view" class="view view--active" aria-labelledby="educator-heading">
+    <h2 id="educator-heading" class="view__heading">Build a lesson</h2>
+    <p id="educator-curriculum" class="view__subhead"></p>
 
-    <form id="start-form" class="start-form" autocomplete="off">
-      <label class="field">
-        <span class="field__label">Topic</span>
-        <input
-          id="topic-input"
-          class="field__input"
-          type="text"
-          name="topic"
-          placeholder="e.g. photosynthesis"
-          required
-        />
-      </label>
+    <form id="educator-form" class="educator-form" autocomplete="off">
+      <fieldset class="expectations">
+        <legend class="expectations__legend">
+          Choose 1–3 expectations. The podcast covers exactly these, in order,
+          and the learner can't change them.
+        </legend>
+        <div id="expectation-groups"></div>
+      </fieldset>
 
       <label class="field">
         <span class="field__label">Reading level</span>
         <select id="grade-select" class="field__input" name="gradeBand">
           <option value="elementary">Elementary (3-5)</option>
-          <option value="middle">Middle school (6-8)</option>
-          <option value="high" selected>High school (9-12)</option>
+          <option value="middle" selected>Middle school (6-8)</option>
+          <option value="high">High school (9-12)</option>
           <option value="college">College / adult</option>
         </select>
       </label>
+    </form>
 
+    <aside id="lesson-link-panel" class="panel panel--link" aria-labelledby="lesson-link-heading">
+      <h3 id="lesson-link-heading" class="panel__heading">Lesson link</h3>
+      <p id="lesson-link-status" class="panel__note">Pick at least one expectation.</p>
+      <input id="lesson-link" class="field__input lesson-link" type="text" readonly hidden />
+      <div class="panel__actions">
+        <button type="button" class="btn" id="copy-link-btn" hidden>Copy link</button>
+        <button type="button" class="btn btn--primary" id="preview-btn" hidden>
+          Open as a learner
+        </button>
+      </div>
+      <small class="field__hint">
+        Hand this link to students. It opens straight into the lesson with these
+        expectations locked in. (A student who edits the link can change it —
+        the lock is about what the app offers them, not about tamper-proofing.)
+      </small>
+    </aside>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- START — what the learner sees. Read-only lesson scope.         -->
+  <!-- ============================================================= -->
+  <section id="start-view" class="view" aria-labelledby="start-heading" hidden>
+    <h2 id="start-heading" class="view__heading">Here's what this lesson covers</h2>
+    <p id="lesson-curriculum" class="view__subhead"></p>
+
+    <ul id="locked-expectations" class="locked-expectations"></ul>
+
+    <form id="start-form" class="start-form" autocomplete="off">
       <label class="field">
         <span class="field__label">Claude API key</span>
         <input
@@ -75,25 +104,15 @@
         </small>
       </label>
 
-      <button type="submit" class="btn btn--primary" id="start-btn">Build my lesson</button>
+      <button type="submit" class="btn btn--primary" id="start-btn">Start the lesson</button>
     </form>
-
-    <!-- "Which one did you mean?" — only when the topic is ambiguous, and
-         always before any generation compute is spent. -->
-    <aside id="confirm-panel" class="panel" aria-labelledby="confirm-prompt" hidden>
-      <h3 id="confirm-prompt" class="panel__heading">Which one did you mean?</h3>
-      <ul id="confirm-options" class="panel__options panel__options--stacked"></ul>
-      <button type="button" class="btn" id="confirm-none-btn">
-        None of these — let me reword it
-      </button>
-    </aside>
 
     <p id="start-status" class="status" role="status" aria-live="polite"></p>
     <p id="offline-note" class="offline-note" role="status" hidden></p>
   </section>
 
   <!-- ============================================================= -->
-  <!-- ASSESSMENT — used for BOTH the diagnostic and the wrap-up quiz -->
+  <!-- ASSESSMENT — used for BOTH the pre-pod quiz and the wrap-up.   -->
   <!-- One stage, not two: they are parallel forms of the same        -->
   <!-- instrument (spec §9), and app.js swaps the heading and whether -->
   <!-- feedback is shown.                                             -->
@@ -102,7 +121,7 @@
     <div id="quiz-stage" class="quiz">
       <div class="quiz__top">
         <h2 id="quiz-heading" class="view__heading">Before we start</h2>
-        <span class="chapter-badge" id="quiz-progress">1 of 5</span>
+        <span class="chapter-badge" id="quiz-progress">1 of 3</span>
       </div>
       <p id="quiz-prompt" class="quiz__prompt"></p>
       <ul id="quiz-choices" class="quiz__choices"></ul>
@@ -119,7 +138,7 @@
   <!-- ============================================================= -->
   <section id="player-view" class="view" aria-labelledby="topic-title" hidden>
     <div class="player-topbar">
-      <h2 id="topic-title" class="view__heading">Topic</h2>
+      <h2 id="topic-title" class="view__heading">Lesson</h2>
       <span class="chapter-badge" id="chapter-progress">Chapter 1</span>
     </div>
     <p id="objective-now" class="objective-now"></p>
@@ -153,8 +172,9 @@
     <ul id="result-objectives" class="result-objectives"></ul>
 
     <p class="result-caveat">
-      This is a handful of questions, not a grade. It's a signal about where to
-      look next — nothing more.
+      Three questions before and three after is a signal about where to look
+      next — not a grade, and not a measurement. Your teacher sees this
+      alongside everything else they know about your work.
     </p>
 
     <section class="references" aria-label="References">
@@ -162,7 +182,7 @@
       <ul data-slot="references" class="references__list"></ul>
     </section>
 
-    <button type="button" class="btn btn--primary" id="restart-btn">Study something else</button>
+    <button type="button" class="btn btn--primary" id="restart-btn">Run it again</button>
   </section>
 
 </main>
@@ -172,7 +192,7 @@
     Poducator uses AI and can make mistakes. It's a study aid — not a substitute
     for your teacher or your textbook. Check the sources before citing anything.
   </small>
-  <small>Poducator · Phase 1 · wiki sources · browser text-to-speech</small>
+  <small>Poducator · Ontario Grade 7 Science, Strand D · wiki sources · browser text-to-speech</small>
 </footer>
 
 <script type="module" src="js/app.js"></script>

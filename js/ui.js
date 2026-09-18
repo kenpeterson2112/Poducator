@@ -1,5 +1,5 @@
 /**
- * ui.js — all DOM rendering for the student app.
+ * ui.js — all DOM rendering.
  *
  * Deliberately dumb, like NowPod's ui.js: it renders what app.js hands it and
  * reports intent back through promises and callbacks. No fetching, no TTS, no
@@ -8,51 +8,59 @@
  * Two question surfaces, and the difference between them IS the design
  * (spec §6):
  *
- *   askItem()       BLOCKS. Used for the diagnostic and the wrap-up quiz.
- *                   Nothing is playing; waiting is correct.
+ *   askItem()        BLOCKS. Used for the pre-pod quiz and the wrap-up quiz.
+ *                    Nothing is playing; waiting is correct.
  *   showCheckpoint() DOES NOT BLOCK. Used mid-chapter. Appears while Host B's
- *                   riff is still playing and resolves either on an answer or
- *                   when the audio moves on. The show never waits.
+ *                    riff is still playing and resolves either on an answer or
+ *                    when the audio moves on. The show never waits.
  *
- * Both are built on the same settle-once promise pattern carried over from
- * NowPod's showChime/showSourceConfirm.
+ * One thing this file deliberately never renders: a misconception label. The
+ * bank tags every wrong choice with what a learner picking it believes, and
+ * that is genuinely useful — to a teacher deciding what to reteach. Telling a
+ * 12-year-old they hold the "symmetry-is-decorative" misconception is a
+ * different act, and not a helpful one. The learner gets the explanation; the
+ * label goes in the session record.
  */
 
 import { UNSURE, UNSURE_LABEL, NO_ANSWER } from './assessment.js';
 import { statusLabel } from './objectives.js';
+import { EXPECTATION_SELECTION } from './config.js';
 
 const els = {};
 
 /** <li> elements of the chapter currently playing (highlight targets). */
 let currentChapterEls = [];
 
-/** Cleanup handles for the open panels, if any. */
+/** Cleanup handle for the open checkpoint, if any. */
 let openCheckpoint = null;
-let openConfirm = null;
+
+/** Called when the educator changes their expectation selection. */
+let onSelectionChange = () => {};
 
 export function init() {
   const byId = (id) => document.getElementById(id);
-  // One assessment stage serves both the diagnostic and the wrap-up quiz —
-  // they are parallel forms of the same instrument (spec §9), so presenting
-  // them on the same surface is honest as well as less markup.
   els.views = {
+    educator: byId('educator-view'),
     start: byId('start-view'),
     assess: byId('assess-view'),
     player: byId('player-view'),
     result: byId('result-view'),
   };
-  els.startForm = byId('start-form');
-  els.topicInput = byId('topic-input');
+
+  els.educatorCurriculum = byId('educator-curriculum');
+  els.expectationGroups = byId('expectation-groups');
   els.gradeSelect = byId('grade-select');
+  els.lessonLink = byId('lesson-link');
+  els.lessonLinkStatus = byId('lesson-link-status');
+  els.copyLinkBtn = byId('copy-link-btn');
+  els.previewBtn = byId('preview-btn');
+
+  els.lessonCurriculum = byId('lesson-curriculum');
+  els.lockedExpectations = byId('locked-expectations');
+  els.startForm = byId('start-form');
   els.apiKeyInput = byId('api-key-input');
   els.startStatus = byId('start-status');
 
-  els.confirmPanel = byId('confirm-panel');
-  els.confirmPrompt = byId('confirm-prompt');
-  els.confirmOptions = byId('confirm-options');
-  els.confirmNoneBtn = byId('confirm-none-btn');
-
-  els.quizStage = byId('quiz-stage');
   els.quizHeading = byId('quiz-heading');
   els.quizProgress = byId('quiz-progress');
   els.quizPrompt = byId('quiz-prompt');
@@ -86,16 +94,12 @@ export function showView(name) {
   }
 }
 
-export function readStart() {
-  return {
-    topic: els.topicInput.value.trim(),
-    gradeBand: els.gradeSelect.value,
-    apiKey: els.apiKeyInput.value.trim(),
-  };
-}
-
 export function setApiKey(value) {
   if (value) els.apiKeyInput.value = value;
+}
+
+export function readStart() {
+  return { apiKey: els.apiKeyInput.value.trim() };
 }
 
 export function setStatus(message, isError = false) {
@@ -109,85 +113,157 @@ export function setOfflineNote(text) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Source confirmation (ported from NowPod)                            */
+/* Educator: expectation picker                                        */
 /* ------------------------------------------------------------------ */
 
 /**
- * "Which one did you mean?" — shown only when the topic is ambiguous, before
- * any generation compute is spent. Getting the wrong article is worse in a
- * classroom than in a curiosity app, so this checkpoint stays.
- * @returns {Promise<Object|null>} The picked candidate, or null to refine.
+ * Render the strand's expectations as a capped multi-select.
+ *
+ * The cap is enforced by disabling unchecked boxes once the maximum is reached
+ * rather than by rejecting a fourth click with a message. An educator should be
+ * able to see that three is the limit without having to bump into it.
+ *
+ * @param {Array<{strand: string, title: string, expectations: Array}>} groups
+ * @param {{label: string, strandTitle: string}} curriculum
  */
-export function showSourceConfirm(topic, candidates) {
-  cancelSourceConfirm();
+export function renderEducatorPicker(groups, curriculum) {
+  els.educatorCurriculum.textContent = `${curriculum.label} — ${curriculum.strandTitle}`;
 
-  return new Promise((resolve) => {
-    let settled = false;
-    const settle = (value) => {
-      if (settled) return;
-      settled = true;
-      hideSourceConfirm();
-      resolve(value);
-    };
+  els.expectationGroups.replaceChildren(
+    ...groups.map((group) => {
+      const section = document.createElement('section');
+      section.className = 'expectation-group';
 
-    els.confirmPrompt.textContent = `A few things match "${topic}" — which did you mean?`;
-    els.confirmOptions.replaceChildren(
-      ...candidates.map((candidate) => {
+      const heading = document.createElement('h3');
+      heading.className = 'expectation-group__heading';
+      heading.textContent = `${group.strand}. ${group.title}`;
+      section.append(heading);
+
+      const list = document.createElement('ul');
+      list.className = 'expectation-group__list';
+
+      for (const expectation of group.expectations) {
         const li = document.createElement('li');
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'btn candidate';
+        const label = document.createElement('label');
+        label.className = 'expectation';
 
-        const title = document.createElement('span');
-        title.className = 'candidate__title';
-        title.textContent = candidate.title;
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.className = 'expectation__check';
+        input.value = expectation.code;
+        input.addEventListener('change', () => {
+          enforceSelectionCap();
+          onSelectionChange();
+        });
 
-        const desc = document.createElement('span');
-        desc.className = 'candidate__desc';
-        desc.textContent =
-          candidate.description || candidate.summary.slice(0, 140) || 'No description available';
+        const code = document.createElement('span');
+        code.className = 'expectation__code';
+        code.textContent = expectation.code;
 
-        btn.append(title, desc);
-        btn.addEventListener('click', () => settle(candidate));
-        li.append(btn);
-        return li;
-      })
-    );
+        const text = document.createElement('span');
+        text.className = 'expectation__text';
+        text.textContent = expectation.text;
 
-    const onNone = () => settle(null);
-    els.confirmNoneBtn.addEventListener('click', onNone);
+        label.append(input, code, text);
+        li.append(label);
+        list.append(li);
+      }
 
-    openConfirm = {
-      cancel: () => settle(null),
-      cleanup: () => els.confirmNoneBtn.removeEventListener('click', onNone),
-    };
-    els.confirmPanel.hidden = false;
-  });
+      section.append(list);
+      return section;
+    })
+  );
 }
 
-export function hideSourceConfirm() {
-  if (openConfirm) {
-    openConfirm.cleanup();
-    openConfirm = null;
+/** Every checkbox in the picker. */
+function checkboxes() {
+  return Array.from(els.expectationGroups.querySelectorAll('.expectation__check'));
+}
+
+/** Grey out the unchecked boxes once the cap is reached. */
+function enforceSelectionCap() {
+  const boxes = checkboxes();
+  const atCap = boxes.filter((b) => b.checked).length >= EXPECTATION_SELECTION.max;
+  for (const box of boxes) {
+    box.disabled = atCap && !box.checked;
+    box.closest('.expectation')?.classList.toggle('expectation--disabled', box.disabled);
   }
-  els.confirmPanel.hidden = true;
-  els.confirmOptions.replaceChildren();
 }
 
-export function cancelSourceConfirm() {
-  openConfirm?.cancel();
+/** @returns {{codes: string[], gradeBand: string}} */
+export function readEducatorSelection() {
+  return {
+    codes: checkboxes().filter((b) => b.checked).map((b) => b.value),
+    gradeBand: els.gradeSelect.value,
+  };
+}
+
+/**
+ * Show (or hide) the shareable lesson link.
+ * @param {string} url    Empty string when the selection isn't valid yet.
+ * @param {number} count  How many expectations are currently selected.
+ */
+export function setLessonLink(url, count) {
+  const ready = Boolean(url);
+  els.lessonLink.hidden = !ready;
+  els.copyLinkBtn.hidden = !ready;
+  els.previewBtn.hidden = !ready;
+
+  if (ready) {
+    els.lessonLink.value = url;
+    els.lessonLinkStatus.textContent =
+      `${count} expectation${count === 1 ? '' : 's'} selected. ` +
+      `The pre-pod quiz asks 3 questions across ${count === 1 ? 'it' : 'them'}.`;
+  } else {
+    els.lessonLinkStatus.textContent = 'Pick at least one expectation.';
+  }
 }
 
 /* ------------------------------------------------------------------ */
-/* Blocking assessment (diagnostic + wrap-up quiz)                     */
+/* Learner: the locked lesson                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Show the learner what the lesson covers, read-only.
+ *
+ * There is deliberately no control here that changes the scope. The educator
+ * chose it; the learner's job is to listen to it.
+ *
+ * @param {Array<{id: string, text: string, short: string}>} objectives
+ * @param {{curriculumLabel: string, strandTitle: string}} meta
+ */
+export function renderLockedLesson(objectives, meta) {
+  els.lessonCurriculum.textContent = `${meta.curriculumLabel} — ${meta.strandTitle}`;
+
+  els.lockedExpectations.replaceChildren(
+    ...objectives.map((objective) => {
+      const li = document.createElement('li');
+      li.className = 'locked-expectation';
+
+      const code = document.createElement('span');
+      code.className = 'locked-expectation__code';
+      code.textContent = objective.id;
+
+      const text = document.createElement('span');
+      text.className = 'locked-expectation__text';
+      text.textContent = objective.text;
+
+      li.append(code, text);
+      return li;
+    })
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Blocking assessment (pre-pod quiz + wrap-up quiz)                   */
 /* ------------------------------------------------------------------ */
 
 /**
  * Ask one assessment item and wait for an answer.
  *
  * The "Not sure yet" choice is always appended and is never framed as failure —
- * it is the single most informative answer a student can give, because it
- * separates a gap from a misconception (see assessment.js). A student who feels
+ * it is the single most informative answer a learner can give, because it
+ * separates a gap from a misconception (see assessment.js). A learner who feels
  * penalized for it will guess instead, and the diagnostic loses its point.
  *
  * @param {import('./assessment.js').Item} item
@@ -229,13 +305,13 @@ export function askItem(item, meta) {
       if (settled) return;
       settled = true;
 
-      // Lock the choices so a student can't re-answer after seeing feedback.
+      // Lock the choices so a learner can't re-answer after seeing feedback.
       for (const el of els.quizChoices.querySelectorAll('button')) el.disabled = true;
       btn.classList.add('choice--picked');
 
       if (!meta.showFeedback) return resolve(index);
 
-      // Feedback only on the wrap-up quiz. During the diagnostic it would
+      // Feedback only on the wrap-up quiz. During the pre-pod quiz it would
       // teach the answer, contaminating the very baseline being measured.
       const correct = index === item.correctIndex;
       els.quizChoices
@@ -247,7 +323,9 @@ export function askItem(item, meta) {
       els.quizFeedback.className = `feedback ${correct ? 'feedback--ok' : 'feedback--no'}`;
       els.quizFeedback.hidden = false;
 
-      setTimeout(() => resolve(index), correct ? 1400 : 2600);
+      // Longer on a miss: the explanation is the teaching, and these items
+      // carry a reason clause that takes a beat to read.
+      setTimeout(() => resolve(index), correct ? 1600 : 3200);
     }
   });
 }
@@ -256,10 +334,10 @@ export function askItem(item, meta) {
 /* Player: transcript + checkpoint                                     */
 /* ------------------------------------------------------------------ */
 
-export function setChapterHeader(topic, progress, objectiveText) {
-  els.topicTitle.textContent = topic;
+export function setChapterHeader(lessonTitle, progress, objectiveText, code) {
+  els.topicTitle.textContent = lessonTitle;
   els.chapterProgress.textContent = progress;
-  els.objectiveNow.textContent = objectiveText ?? '';
+  els.objectiveNow.textContent = code ? `${code} · ${objectiveText}` : (objectiveText ?? '');
 }
 
 export function clearTranscript() {
@@ -290,12 +368,25 @@ export function appendLine(line) {
   const el = buildLineEl(line);
   els.transcript.append(el);
   currentChapterEls.push(el);
-  el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  scrollTo(el);
 }
 
 export function highlightLine(lineIndex) {
   currentChapterEls.forEach((el, i) => el.classList.toggle('line--active', i === lineIndex));
-  currentChapterEls[lineIndex]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  scrollTo(currentChapterEls[lineIndex]);
+}
+
+/**
+ * Follow the karaoke transcript.
+ *
+ * Optional-called because this runs inside the TTS boundary callback, and a
+ * throw there propagates out through speakChapter and takes down audio for the
+ * whole chapter. Losing the auto-scroll is a cosmetic degradation; losing the
+ * lesson's audio because a platform lacks scrollIntoView is not a trade worth
+ * making.
+ */
+function scrollTo(el) {
+  el?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
 }
 
 /**
@@ -303,7 +394,7 @@ export function highlightLine(lineIndex) {
  *
  * Never a modal, never pauses. It appears when Host A asks the question and
  * stays up through Host B's riff — that riff is the answer window. If the
- * student doesn't answer, app.js resolves this with NO_ANSWER when the audio
+ * learner doesn't answer, app.js resolves this with NO_ANSWER when the audio
  * moves on, and Host A answers aloud instead.
  *
  * @param {Object} checkpoint
@@ -373,14 +464,15 @@ export function flashCheckpointResult(correct, explanation) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Render the student-facing result: per-objective growth, framed as movement
+ * Render the learner-facing result: per-expectation growth, framed as movement
  * rather than as a grade (spec §9).
+ *
  * @param {Array<{objectiveId: string, before: number, after: number, delta: number}>} growth
- * @param {Array<{id: string, text: string}>} objectives
+ * @param {Array<{id: string, text: string, short: string}>} objectives
  * @param {Array<{objectiveId: string, status: string}>} gaps
  */
 export function renderResult(growth, objectives, gaps) {
-  const textById = new Map(objectives.map((o) => [o.id, o.text]));
+  const byId = new Map(objectives.map((o) => [o.id, o]));
   const statusById = new Map(gaps.map((g) => [g.objectiveId, g.status]));
 
   const improved = growth.filter((g) => g.delta > 0).length;
@@ -388,35 +480,39 @@ export function renderResult(growth, objectives, gaps) {
 
   els.resultSummary.textContent =
     improved > 0
-      ? `You moved forward on ${improved} of ${growth.length} objectives.`
+      ? `You moved forward on ${improved} of ${growth.length} expectation${growth.length === 1 ? '' : 's'}.`
       : held > 0
         ? 'You already had most of this — nice.'
         : 'This one was tough. That is useful information, not a verdict.';
 
   els.resultObjectives.replaceChildren(
     ...growth.map((g) => {
+      const objective = byId.get(g.objectiveId);
       const li = document.createElement('li');
       li.className = 'objective-result';
 
       const head = document.createElement('p');
       head.className = 'objective-result__text';
-      head.textContent = textById.get(g.objectiveId) ?? g.objectiveId;
+      const code = document.createElement('span');
+      code.className = 'objective-result__code';
+      code.textContent = g.objectiveId;
+      head.append(code, document.createTextNode(objective?.text ?? g.objectiveId));
 
       // Three segments rather than two overlaid bars, so the GAIN is the thing
-      // the eye lands on: what the student already had is muted, what they
+      // the eye lands on: what the learner already had is muted, what they
       // picked up is in accent, and a drop is called out rather than hidden.
       const bar = document.createElement('div');
       bar.className = 'growth';
 
-      const held = document.createElement('span');
-      held.className = 'growth__held';
-      held.style.width = `${Math.min(g.before, g.after)}%`;
+      const heldSeg = document.createElement('span');
+      heldSeg.className = 'growth__held';
+      heldSeg.style.width = `${Math.min(g.before, g.after)}%`;
 
       const change = document.createElement('span');
       change.className = g.delta >= 0 ? 'growth__gain' : 'growth__loss';
       change.style.width = `${Math.abs(g.delta)}%`;
 
-      bar.append(held, change);
+      bar.append(heldSeg, change);
 
       const label = document.createElement('p');
       label.className = 'objective-result__label';
@@ -452,10 +548,42 @@ export function renderReferences(refs) {
 }
 
 export function bindHandlers(handlers) {
+  onSelectionChange = handlers.onSelectionChange ?? (() => {});
+
   els.startForm.addEventListener('submit', (e) => {
     e.preventDefault();
     handlers.onStart();
   });
+  els.gradeSelect.addEventListener('change', () => onSelectionChange());
+  els.previewBtn.addEventListener('click', handlers.onPreviewLesson);
+  els.copyLinkBtn.addEventListener('click', copyLessonLink);
   els.skipBtn.addEventListener('click', handlers.onSkip);
-  els.restartBtn.addEventListener('click', handlers.onRestart);
+  els.restartBtn.addEventListener('click', () => handlers.onRestart());
+}
+
+/**
+ * Copy the lesson link. The clipboard API needs a secure context and can be
+ * denied, so the select-and-execCommand path stays as a fallback — an educator
+ * on a school-managed browser should still be able to get the link out.
+ */
+async function copyLessonLink() {
+  const url = els.lessonLink.value;
+  if (!url) return;
+
+  try {
+    await navigator.clipboard.writeText(url);
+    flashCopied('Link copied.');
+  } catch {
+    els.lessonLink.select();
+    const ok = document.execCommand?.('copy');
+    flashCopied(ok ? 'Link copied.' : 'Press Ctrl/Cmd+C to copy.');
+  }
+}
+
+function flashCopied(message) {
+  const previous = els.lessonLinkStatus.textContent;
+  els.lessonLinkStatus.textContent = message;
+  setTimeout(() => {
+    els.lessonLinkStatus.textContent = previous;
+  }, 2000);
 }

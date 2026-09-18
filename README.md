@@ -1,15 +1,17 @@
 # Poducator
 
-A lesson-shaped podcast that **diagnoses what a student already knows, teaches the gaps, checks
+A curriculum-tied podcast that **diagnoses what a learner already thinks, teaches the gaps, checks
 whether the teaching landed, and measures what moved.**
 
-Two AI hosts research a topic from open wiki sources and teach it as a short show. But unlike a
-narrated article, the lesson adapts: a 90-second diagnostic decides what gets covered, mid-chapter
-comprehension checks decide what gets retaught, and a wrap-up quiz measures growth per learning
-objective — feeding a teacher dashboard that never learns a single student's name.
+An educator picks 1–3 curriculum expectations. Two AI hosts teach exactly those, as a short show.
+The lesson adapts: a three-question quiz up front decides what gets covered and how long each part
+runs, mid-chapter comprehension checks decide what gets retaught, and a wrap-up quiz measures
+growth per expectation — feeding a teacher dashboard that never learns a single student's name, but
+does report **which misconceptions the class actually holds.**
 
-> **Status:** Phase 1. The student loop runs end to end against local storage.
-> Supabase schema and the Edge Function ship here but are not yet wired up.
+> **Status:** The learner loop runs end to end against local storage, tied to
+> Ontario Grade 7 Science, Strand D. Supabase schema and the Edge Function ship
+> here but are not yet wired up. No teacher dashboard yet.
 
 ## Lineage
 
@@ -18,20 +20,33 @@ NowPod proved chapters can generate incrementally and a listener can steer mid-s
 takes the same seam and points it at evidence of learning instead of curiosity — its "chime"
 becomes a comprehension check.
 
-The TTS engine, the stale-async guard, the structured-output generation pattern, and the
-disambiguation checkpoint are all carried over from NowPod rather than rewritten.
+The TTS engine, the stale-async guard, and the structured-output generation pattern are carried
+over from NowPod rather than rewritten. NowPod's disambiguation checkpoint is *gone* — curriculum
+expectations carry curated source titles, so there is nothing left to disambiguate.
 
 ## What makes it different from "an AI reading you an article"
 
-**1. Learning objectives are the spine.** A lesson decomposes into 3–5 objectives, and every
-diagnostic item, chapter, checkpoint and quiz item tags to one. That's what makes the dashboard
-actionable — *"18 of 24 are still shaky on objective 3"* rather than *"class average 62%."*
+**1. Curriculum expectations are the spine.** An educator picks 1–3 and they are locked in for the
+learner. The expectation code *is* the objective id everywhere — in the item bank, the chapter plan,
+the database — so a dashboard row reads `D2.2`, not `OBJ-3`, and matches the curriculum document
+with no lookup table in between.
 
-**2. It measures growth, not score.** The diagnostic and the wrap-up quiz are **parallel forms** —
-same objectives, different items, generated in one call so difficulty actually matches. A final
-score mostly measures what a student walked in with. The delta measures what the lesson did.
+**2. Wrong answers say *what the learner believes*, not just that they were wrong.** Every distractor
+in the bank is authored to encode a specific mistake students actually make, and that slug is
+recorded. 100 distinct misconceptions across 162 distractors. This is the whole point of the
+design:
 
-**3. "Not sure yet" is a first-class answer.** Every diagnostic item offers it, and it's tracked
+> *"62% on D2.4"* is a number.
+> *"Eleven students think symmetry is decorative"* is tomorrow's lesson opener.
+
+Teacher-facing only — the learner sees the explanation, never the label.
+
+**3. It measures growth, not score.** The pre-pod quiz and the wrap-up quiz are **parallel forms** —
+same expectations, different items, authored as pairs matched on cognitive demand, not just
+difficulty. A final score mostly measures what a learner walked in with. The delta measures what the
+lesson did.
+
+**4. "Not sure yet" is a first-class answer.** Every item offers it, and it's tracked
 separately from a wrong answer — because a *gap* and a *misconception* need opposite teaching. A
 wrong mental model actively interferes with new material; an empty slot doesn't. So the chapter
 planner ranks misconceptions **above** things the student has never heard of:
@@ -40,11 +55,17 @@ planner ranks misconceptions **above** things the student has never heard of:
 MISCONCEPTION  >  UNKNOWN  >  SHAKY  >  SOLID
 ```
 
-**4. Getting a check wrong changes the lesson.** A missed checkpoint re-queues that objective
-immediately with an explicit instruction *not* to repeat the earlier explanation. Once, not
-forever — looping a student a third time on the same idea is how a study aid becomes a punishment.
+**5. Knowing it already makes the chapter shorter, not absent.** Every selected expectation gets a
+chapter — an educator chose them on purpose, and one multiple-choice item is not strong enough
+evidence to overturn that. What the diagnostic controls is **order and length**: arrive solid and you
+get a 5–7 exchange confirm-and-extend instead of a 9–12 exchange full treatment.
 
-**5. The hosts are a teacher and a learner.** Host B voices the confusion a student has but won't
+**6. Getting a check wrong changes the lesson.** A missed checkpoint re-queues that expectation
+immediately, at full length, with an explicit instruction *not* to repeat the earlier explanation.
+Once, not forever — looping a learner a third time on the same idea is how a study aid becomes a
+punishment.
+
+**7. The hosts are a teacher and a learner.** Host B voices the confusion a student has but won't
 ask aloud, and sometimes gets it wrong and self-corrects. Hearing your own confusion spoken and
 resolved beats being lectured at, and it makes being confused feel normal.
 
@@ -63,25 +84,30 @@ the access control. Full write-up, including the limitations, in [`docs/privacy.
 ## The loop
 
 ```
-[Join]  class code → assigned lesson   |   Explore → free topic
+EDUCATOR
+[Pick 1-3]   js/curriculum/  expectations from the strand + reading level
    ↓
-[Research]   js/sources/     wiki sources + "which one did you mean?" if ambiguous
+[Link]                       #e=D2.2,D2.5&g=middle  → hand to learners
+
+LEARNER
+[Locked]     js/ui.js        sees what it covers; no control changes it
    ↓
-[Plan]       js/claude.js    objectives + diagnostic + wrap-up items, in ONE call
+[Diagnose]   js/ui.js        3 items from the pre-built bank — NO API CALL
+   ↓                         (wiki fetches run underneath these three questions)
+[Gap profile] js/objectives.js   rank expectations by teaching urgency
    ↓
-[Diagnose]   js/ui.js        4-6 items, ~90s, blocking — nothing is playing
-   ↓
-[Gap profile] js/objectives.js   rank objectives by teaching urgency
-   ↓
-[Teach]      js/tts.js       two voices, karaoke transcript, one objective per chapter
-   ↓
+[Teach]      js/tts.js       two voices, karaoke transcript, one expectation per
+   ↓                         chapter, length scaled to how well they knew it
 [Check]      js/ui.js        non-blocking — Host B's riff IS the answer window
-   ↓  wrong/ignored → re-queue that objective, taught a different way
+   ↓  wrong/ignored → re-queue that expectation at full length, taught differently
    ↓  (loop)
 [Wrap-up]    js/ui.js        the parallel-form items, blocking, with feedback
    ↓
-[Result]     per-objective growth
+[Result]     per-expectation growth
 ```
+
+**One API call per chapter, and nothing else.** The planning call is gone — objectives are the
+educator's selection and both item sets are pre-built, so nothing blocks the start of the lesson.
 
 Coordinated by the state machine in [`js/app.js`](js/app.js).
 
@@ -96,19 +122,23 @@ answer — that's the point of it. So:
 - `no_response` is recorded as its own outcome, distinct from wrong — it usually means the student
   drifted, which is different information than a wrong answer and a teacher should see the
   difference.
-- The diagnostic and wrap-up quiz **do** block. Nothing is playing; waiting is correct.
+- Both quizzes **do** block. Nothing is playing; waiting is correct.
 
 ## Project structure
 
 ```
 Poducator/
-├── index.html                    # student PWA shell
-├── manifest.webmanifest / sw.js  # installable, works offline mid-lesson
+├── index.html                    # PWA shell: educator picker + learner loop
+├── manifest.webmanifest / sw.js  # installable; the item bank is cached shell
 ├── css/styles.css
 ├── js/
-│   ├── config.js                 # sources, personas, item counts, grade bands
+│   ├── curriculum/
+│   │   ├── ontario-sci-7-d.js    # the 9 expectations + curated sources + briefs
+│   │   ├── items.js              # 54 hand-authored items + misconception library
+│   │   └── index.js              # lesson link encode/decode, item sampling
+│   ├── config.js                 # sources, personas, item counts, chapter depth
 │   ├── sources/                  # MediaWiki-family adapters + registry
-│   ├── claude.js                 # generation: plan call + chapter call
+│   ├── claude.js                 # generation: chapter call (the only one)
 │   ├── assessment.js             # item model, scoring, pre/post delta  (pure)
 │   ├── objectives.js             # gap profile, chapter planning        (pure)
 │   ├── tts.js                    # browser TTS, ported from NowPod
@@ -116,13 +146,13 @@ Poducator/
 │   ├── store.js                  # IndexedDB + offline outbox
 │   └── app.js                    # state machine
 ├── supabase/
-│   ├── migrations/0001_init.sql  # schema + RLS (Phase 2)
+│   ├── migrations/               # schema + RLS + misconception views (Phase 2)
 │   └── functions/session/        # Claude proxy + student writes (Phase 2)
 └── docs/{spec,privacy}.md
 ```
 
-`assessment.js` and `objectives.js` are pure — no DOM, no fetch, no state — so the pedagogy can be
-tested with fixture data instead of by clicking through a lesson.
+`assessment.js`, `objectives.js` and `curriculum/index.js` are pure — no DOM, no fetch, no state —
+so the pedagogy can be tested with fixture data instead of by clicking through a lesson.
 
 ## Running it
 
@@ -133,7 +163,8 @@ python3 -m http.server 8000
 # or: npx serve .
 ```
 
-Open <http://localhost:8000>, paste a Claude API key, type a topic.
+Open <http://localhost:8000>. You land on the educator picker: choose 1–3 expectations, then
+**Open as a learner** (or copy the link). Paste a Claude API key on the learner screen.
 
 ### About the API key
 
@@ -143,23 +174,55 @@ a demo and wrong for students**, which is why `supabase/functions/session` alrea
 points `store.js` and `claude.js` at it and the key never leaves the server. The request body is
 identical either way; only the URL and headers change.
 
+## Adding a strand or a subject
+
+A curriculum is one file in `js/curriculum/` plus its item bank. For each expectation you need:
+curriculum text, curated source titles, a `brief` saying what covering it means at that grade, an
+`anchor` phenomenon, and **six items** — three pre, three post, authored as pairs.
+
+Item authoring rules live in [`js/curriculum/items.js`](js/curriculum/items.js) and in spec §9. The
+short version: phenomenon-first stems, every choice is claim + reason, every distractor is a named
+misconception, pairs match on cognitive demand, and no stem assumes a house, a car, a bike, or a
+hobby.
+
+Then check it:
+
+```bash
+node tools/check-bank.mjs
+```
+
+That enforces the rules a human reviewer reliably misses — chiefly that pre/post pairs match on
+cognitive demand (a mismatched pair makes the growth delta measure the instrument rather than the
+learner, and the number still looks plausible) and that each expectation's items are ordered
+thinking → application → knowledge, since the sampler takes the first N.
+
 ## Adding sources
 
-The user-supplied wiki source list drops into `SOURCES` in [`js/config.js`](js/config.js). Every
+The wiki source registry lives in `SOURCES` in [`js/config.js`](js/config.js). Every
 MediaWiki-family site shares one API shape, so adding one is a config entry. Non-MediaWiki sources
 need a new adapter implementing the same interface as `js/sources/mediawiki.js`.
 
 ## Known rough edges (flag, don't fix)
 
-- Wiki depth is capped; obscure topics produce thin lessons.
+- **The curated article titles haven't had a live pass.** One known trap was caught and swapped
+  (`Structural stability` is a *mathematics* article). A title that stops resolving now degrades to
+  a search rather than to nothing, but the list deserves verification.
+- Wiki depth is capped, and the D1 expectations — evaluating social and economic factors — map onto
+  reference articles worse than the D2 ones do. The `brief` field carries more weight there.
 - Browser TTS quality varies by OS and browser.
-- 4–6 items is a small instrument. The growth delta is a **signal, not a measurement** — the app
-  says so on the result screen, and it should keep saying so.
+- **3 items is a small instrument**, thinner than the 4–6 this started with. The growth delta is a
+  **signal, not a measurement** — the app says so on the result screen and should keep saying so.
+  Growing Success wants triangulation across observations, conversations and products; this is one
+  leg. It can't assess Communication at all.
+- The pre-pod quiz now runs closer to **2 minutes than 90 seconds** — claim-and-reason choices take
+  longer to read. Three good items beat six thin ones, but the number moved.
+- Two learners sitting together see identical questions. Rotation means growing the JSON, not
+  changing code.
 - Reading-level targeting is prompt-based and uncalibrated. It needs real students, not more
   prompt engineering.
-- **Claude writes the assessment *and* teaches the content.** That's a genuine conflict of
-  interest — the model can teach to its own test. Generating items *before* any chapter helps;
-  it doesn't solve it. Teacher review of generated items is on the roadmap for this reason.
+- ~~Claude writes the assessment *and* teaches the content.~~ **Resolved** — the bank is
+  pre-authored and human-reviewable, so the model no longer teaches to its own test. In-chapter
+  *checkpoints* are still model-authored, but they don't feed the growth delta.
 
 ## License
 

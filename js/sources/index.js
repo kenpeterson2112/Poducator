@@ -1,19 +1,20 @@
 /**
- * sources/index.js — the source registry and research step (spec §8).
+ * sources/index.js — grounding material for one curriculum expectation (spec §8).
  *
- * Two phases, same shape as NowPod's research:
+ * What changed when the app became curriculum-driven: there is no search step
+ * and no "which one did you mean?" any more. Each expectation carries curated,
+ * hand-verified article titles in js/curriculum/ontario-sci-7-d.js, so the
+ * ambiguity that made the confirmation step necessary does not arise. Left to a
+ * search, "symmetry" lands on group theory.
  *
- *   1. research(topic, opts)  — search the enabled sources, gather candidates,
- *      and decide whether the match is ambiguous enough to confirm with the
- *      student BEFORE any generation compute is spent.
- *   2. build(candidate, opts) — turn the confirmed candidate into the grounded
- *      source material a lesson is generated from, pulling supporting material
- *      from instructional sources (Wikibooks/Wikiversity) when they have it.
+ * Sourcing is now PER EXPECTATION rather than one blended blob for the whole
+ * lesson. Each chapter call gets only the material for the expectation it is
+ * teaching, which makes the prompt more focused and cheaper at the same time.
  *
- * Why more than one source, unlike NowPod: an encyclopedia article is written
- * to inform, not to teach. Wikibooks and Wikiversity content is already
- * lesson-shaped, and Simple English carries the same facts at a lower reading
- * level. Blending them produces better objectives than any one alone.
+ * Everything here fails soft. A missing article, a down source, a stub page —
+ * none of them should take a lesson down, because the curriculum `brief` on
+ * each expectation carries enough for the model to teach from even when the
+ * wiki fetch returns nothing at all.
  */
 
 import { SOURCES, GRADE_BANDS, SOURCE_CHAR_LIMIT } from '../config.js';
@@ -28,15 +29,10 @@ import * as mediawiki from './mediawiki.js';
 
 /**
  * @typedef {Object} LessonSource
- * @property {string} title       Resolved primary article title.
- * @property {string} text        Blended, capped source material for generation.
- * @property {SourceRef[]} refs   Every article actually used — the reference list.
+ * @property {string} title       The expectation's short label.
+ * @property {string} text        Grounding material, capped.
+ * @property {SourceRef[]} refs   Every article actually used.
  */
-
-/** Sources enabled by default, in registry order. */
-export function defaultSources() {
-  return SOURCES.filter((s) => s.default);
-}
 
 /** Look up a source by id. */
 export function sourceById(id) {
@@ -44,68 +40,83 @@ export function sourceById(id) {
 }
 
 /**
- * Pick the primary search source for a grade band: younger bands start at
- * Simple English, which carries the same facts in shorter sentences.
- * Falls back to Wikipedia when Simple has no article on the topic.
+ * Reading-level preference decides which wiki to try first. Younger bands start
+ * at Simple English, which carries the same facts in shorter sentences, and
+ * fall back to Wikipedia — Simple has far fewer articles, and a curated title
+ * often only exists on the main site.
  * @param {string} gradeBand
+ * @returns {Array<{id: string, label: string, host: string}>} In try order.
  */
-function primaryFor(gradeBand) {
+function hostsFor(gradeBand) {
   const prefer = GRADE_BANDS[gradeBand]?.prefer ?? 'general';
-  const wanted = prefer === 'simple' ? 'simple' : 'wikipedia';
-  return sourceById(wanted) ?? sourceById('wikipedia');
+  const wikipedia = sourceById('wikipedia');
+  if (prefer !== 'simple') return [wikipedia];
+  return [sourceById('simple'), wikipedia].filter(Boolean);
 }
 
-/**
- * Phase 1: find candidate articles for a topic and flag ambiguity.
- *
- * Searches the preferred source first and falls back to Wikipedia when it comes
- * up empty — Simple English has far fewer articles, and a thin result there
- * should not read to the student as "no such topic".
- *
- * @param {string} topic
- * @param {{gradeBand?: string}} [opts]
- * @returns {Promise<{candidates: import('./mediawiki.js').Candidate[], needsConfirmation: boolean}>}
- */
-export async function research(topic, opts = {}) {
-  const primary = primaryFor(opts.gradeBand);
-  let { candidates, sawDisambiguation } = await mediawiki.findCandidates(primary, topic);
-
-  if (candidates.length === 0 && primary.id !== 'wikipedia') {
-    ({ candidates, sawDisambiguation } = await mediawiki.findCandidates(
-      sourceById('wikipedia'),
-      topic
-    ));
-  }
-
-  if (candidates.length === 0) {
-    throw new Error(
-      `Couldn't find anything on "${topic}" in the reference sources — try rewording it.`
-    );
-  }
-
+function entryFor(source, title, text) {
   return {
-    candidates,
-    needsConfirmation: sawDisambiguation || mediawiki.titlesCollide(topic, candidates),
+    label: source.label,
+    title,
+    url: `https://${source.host}/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`,
+    text,
   };
 }
 
 /**
- * Look for instructional coverage of a confirmed topic. Fail-soft by design:
- * most topics have no Wikibooks or Wikiversity page, and that is fine — it is
- * a bonus, never a blocker.
- * @param {string} title
+ * Fetch one curated title, trying each host in order.
+ *
+ * The curated title is a strong hint, not a hard dependency. Wikipedia renames
+ * and merges articles, and a title that was right when the curriculum file was
+ * written can quietly stop resolving — so when no host has it, this falls back
+ * to searching for it. That turns a stale title into a slightly worse source
+ * rather than into no source at all, which matters because these titles were
+ * chosen precisely to avoid what a bare search returns.
+ *
+ * @returns {Promise<{label: string, title: string, url: string, text: string}|null>}
+ */
+async function fetchTitle(hosts, title, charBudget) {
+  for (const source of hosts) {
+    try {
+      const text = await mediawiki.fetchExtract(source, title, charBudget);
+      // Stubs and redirect shells aren't worth the tokens, and their presence
+      // would crowd out a fuller article from the next host in the list.
+      if (!text || text.length < 300) continue;
+      return entryFor(source, title, text);
+    } catch {
+      /* try the next host */
+    }
+  }
+
+  // Exact lookup failed everywhere — search for it on the last (broadest) host.
+  const fallback = hosts[hosts.length - 1];
+  try {
+    const [found] = await mediawiki.searchTitles(fallback, title, 1);
+    if (!found) return null;
+    const text = await mediawiki.fetchExtract(fallback, found, charBudget);
+    return text && text.length >= 300 ? entryFor(fallback, found, text) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Look for instructional coverage — Wikibooks and Wikiversity content is
+ * already lesson-shaped in a way an encyclopedia article is not. Fail-soft by
+ * design: most topics have no page there, and that is fine. It is a bonus,
+ * never a blocker.
  * @returns {Promise<Array<{label: string, title: string, url: string, text: string}>>}
  */
-async function findInstructional(title) {
+async function findInstructional(query, charBudget) {
   const instructional = SOURCES.filter((s) => s.instructional && s.default);
 
   const results = await Promise.all(
     instructional.map(async (source) => {
       try {
-        const [first] = await mediawiki.searchTitles(source, title, 1);
+        const [first] = await mediawiki.searchTitles(source, query, 1);
         if (!first) return null;
-        const text = await mediawiki.fetchExtract(source, first, 2500);
-        if (!text || text.length < 200) return null; // stubs aren't worth the tokens
+        const text = await mediawiki.fetchExtract(source, first, charBudget);
+        if (!text || text.length < 300) return null;
         return {
           label: source.label,
           title: first,
@@ -122,38 +133,71 @@ async function findInstructional(title) {
 }
 
 /**
- * Phase 2: build the grounded source material for a confirmed candidate.
- * @param {import('./mediawiki.js').Candidate} candidate
+ * Build the grounding material for one curriculum expectation.
+ *
+ * The `brief` is prepended rather than left to the chapter prompt alone,
+ * because it is the thing that tells the model what "covering D2.4" means when
+ * the article underneath is about symmetry in mathematics. Source text supports
+ * it; it does not replace it.
+ *
+ * @param {{code: string, short: string, text: string, brief: string, sources: string[]}} expectation
+ * @param {{gradeBand?: string}} [opts]
  * @returns {Promise<LessonSource>}
  */
-export async function build(candidate) {
-  const source = sourceById(candidate.sourceId) ?? sourceById('wikipedia');
+export async function buildForExpectation(expectation, opts = {}) {
+  const hosts = hostsFor(opts.gradeBand);
+  const titles = expectation.sources ?? [];
 
-  // Main body and instructional supplements fetch in parallel; both fail-soft.
-  const [body, instructional] = await Promise.all([
-    mediawiki.fetchExtract(source, candidate.title).catch(() => ''),
-    findInstructional(candidate.title),
+  // Split the budget across the curated titles, leaving room for whatever the
+  // instructional sources turn up.
+  const perTitle = Math.floor(SOURCE_CHAR_LIMIT / Math.max(titles.length + 1, 2));
+
+  const [articles, instructional] = await Promise.all([
+    Promise.all(titles.map((t) => fetchTitle(hosts, t, perTitle))),
+    findInstructional(expectation.short, perTitle),
   ]);
 
-  const parts = [
-    `Reference article (${candidate.sourceLabel} — "${candidate.title}"):`,
-    body || candidate.summary,
-  ];
+  const used = [...articles.filter(Boolean), ...instructional];
 
-  for (const entry of instructional) {
-    parts.push(
-      `\nInstructional material (${entry.label} — "${entry.title}"):\n${entry.text}`
-    );
-  }
-
-  const refs = [
-    { title: candidate.title, url: candidate.url, label: candidate.sourceLabel },
-    ...instructional.map((e) => ({ title: e.title, url: e.url, label: e.label })),
-  ];
+  const parts = used.map(
+    (entry) => `Reference material (${entry.label} — "${entry.title}"):\n${entry.text}`
+  );
 
   return {
-    title: candidate.title,
-    text: parts.join('\n').slice(0, SOURCE_CHAR_LIMIT),
-    refs,
+    title: expectation.short,
+    text: parts.join('\n\n').slice(0, SOURCE_CHAR_LIMIT),
+    refs: used.map((e) => ({ title: e.title, url: e.url, label: e.label })),
   };
+}
+
+/**
+ * Gather sources for every expectation in a lesson, in parallel.
+ *
+ * Returns a map keyed by expectation code plus the deduplicated reference list
+ * for the whole lesson (spec §12 — real titles and URLs, not a generic note).
+ *
+ * @param {Array<{code: string}>} expectations
+ * @param {{gradeBand?: string}} [opts]
+ * @returns {Promise<{byCode: Map<string, LessonSource>, refs: SourceRef[]}>}
+ */
+export async function buildLessonSources(expectations, opts = {}) {
+  const built = await Promise.all(
+    expectations.map((e) => buildForExpectation(e, opts).catch(() => null))
+  );
+
+  const byCode = new Map();
+  const seen = new Set();
+  const refs = [];
+
+  expectations.forEach((expectation, i) => {
+    const source = built[i] ?? { title: expectation.short, text: '', refs: [] };
+    byCode.set(expectation.code, source);
+    for (const ref of source.refs) {
+      if (seen.has(ref.url)) continue;
+      seen.add(ref.url);
+      refs.push(ref);
+    }
+  });
+
+  return { byCode, refs };
 }

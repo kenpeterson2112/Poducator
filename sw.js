@@ -15,7 +15,7 @@
  * Bump CACHE_VERSION on any shell change — old caches are cleared on activate.
  */
 
-const CACHE_VERSION = 'poducator-v1';
+const CACHE_VERSION = 'poducator-v2';
 
 const SHELL = [
   './',
@@ -32,6 +32,12 @@ const SHELL = [
   './js/objectives.js',
   './js/sources/index.js',
   './js/sources/mediawiki.js',
+  // The curriculum and its item bank are part of the shell, not content
+  // fetched at runtime. Caching them is what lets an offline learner still
+  // answer the pre-pod quiz — only the chapter audio needs the network.
+  './js/curriculum/index.js',
+  './js/curriculum/items.js',
+  './js/curriculum/ontario-sci-7-d.js',
   './icons/icon.svg',
 ];
 

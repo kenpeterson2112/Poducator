@@ -34,6 +34,10 @@ export const UNSURE_LABEL = 'Not sure yet';
  * @property {string[]} choices        Distractors + the correct answer.
  * @property {number}   correctIndex   Index into `choices`.
  * @property {string}   explanation    Short "why" — shown after answering.
+ * @property {Array<string|null>} [misconceptions]
+ *   Parallel to `choices`: the misconception each wrong choice encodes, null on
+ *   the correct one. Present on curriculum-bank items, absent on generated
+ *   checkpoints. Teacher-facing only — never rendered to a student.
  */
 
 /**
@@ -43,6 +47,7 @@ export const UNSURE_LABEL = 'Not sure yet';
  * @property {'diagnostic'|'checkpoint'|'final'} phase
  * @property {number} answerIndex   Choice index, or UNSURE / NO_ANSWER.
  * @property {boolean} correct
+ * @property {string|null} misconception  Slug of what a wrong answer reveals.
  * @property {number} latencyMs
  * @property {string} askedAt       ISO timestamp.
  */
@@ -81,9 +86,41 @@ export function recordResponse(item, answerIndex, meta) {
     phase: meta.phase,
     answerIndex,
     correct: answerIndex === item.correctIndex,
+    // What the wrong answer reveals, not just that it was wrong. The sentinel
+    // indices are negative and miss the array, which is correct: "not sure" and
+    // "no answer" are gaps, not misconceptions, and conflating them would put
+    // beliefs in a teacher's report that the student never expressed.
+    misconception: item.misconceptions?.[answerIndex] ?? null,
     latencyMs: meta.latencyMs ?? 0,
     askedAt: meta.askedAt ?? new Date().toISOString(),
   };
+}
+
+/**
+ * Count which misconceptions actually showed up, most common first.
+ *
+ * This is the teacher-facing payoff of the pre-built bank. "62% on D2.4" is not
+ * something a teacher can teach to tomorrow; "most of the class thinks symmetry
+ * is decorative" is a lesson opener. Aggregating across a class happens in the
+ * dashboard — this is the per-session version of the same query.
+ *
+ * @param {Response[]} responses
+ * @returns {Array<{misconception: string, objectiveId: string, count: number}>}
+ */
+export function misconceptionTally(responses) {
+  const counts = new Map();
+  for (const r of responses) {
+    if (!r.misconception) continue;
+    const key = `${r.objectiveId}::${r.misconception}`;
+    const entry = counts.get(key) ?? {
+      misconception: r.misconception,
+      objectiveId: r.objectiveId,
+      count: 0,
+    };
+    entry.count += 1;
+    counts.set(key, entry);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count);
 }
 
 /**
@@ -144,13 +181,17 @@ export function growth(pre, post) {
 }
 
 /**
- * Guard against the model reusing diagnostic items in the wrap-up quiz, which
- * would turn the growth delta into a memory test (spec §9). Compares normalized
- * prompt text rather than ids, since the model writes both sets in one call.
+ * Flag a wrap-up item that reuses a pre-pod item's prompt, which would turn the
+ * growth delta into a memory test (spec §9).
  *
- * Returns the final items with any duplicate-prompt item flagged, so the caller
- * can decide whether to drop it or note it — silently discarding assessment
- * items would quietly shrink the instrument.
+ * This used to run at runtime, when the model wrote both item sets in one call
+ * and could quietly paraphrase itself. The pre-built bank makes the property
+ * structural instead — pairs are authored as pairs — so nothing calls this in
+ * the lesson loop any more. It is kept as an AUTHORING CHECK: run it over a new
+ * curriculum's bank before shipping it, alongside the demand-matching assertions
+ * described in items.js. Compares normalized prompt text rather than ids,
+ * because the failure it catches is two items that read the same, not two items
+ * that are labelled the same.
  *
  * @param {Item[]} diagnostic
  * @param {Item[]} final

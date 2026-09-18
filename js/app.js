@@ -1,20 +1,32 @@
 /**
  * app.js — orchestrator / state machine (spec §4).
  *
- * The loop:
- *   research → plan → diagnose → [teach → check → adapt]* → quiz → result
+ * The loop, now that the lesson is curriculum-driven:
  *
- * Two things carried over from NowPod that matter more here than they did there:
+ *   [educator picks 1-3 expectations] → shareable link
+ *   [learner opens link] → diagnose → [teach → check → adapt]* → quiz → result
  *
- * 1. The runId stale-async guard (isCurrentRun). Poducator has more async
- *    phases than NowPod did, so a student who restarts mid-generation has more
- *    ways to strand a promise that then writes into a dead session.
+ * Two structural changes from Phase 1 worth knowing before reading:
  *
- * 2. Overlapping generation with playback. The next chapter starts generating
- *    the moment the checkpoint resolves, while the current chapter's audio tail
- *    is still playing — so the lesson never stalls on a render. The difference
- *    is that here the checkpoint OUTCOME feeds that generation, which is
- *    exactly why it is resolved during the riff rather than at the end.
+ * 1. THE PLANNING CALL IS GONE. Objectives are curriculum expectations the
+ *    educator locked in; assessment items are pre-built and human-reviewed in
+ *    js/curriculum/items.js. The diagnostic can therefore start the instant the
+ *    learner presses go, with no network round trip in front of it.
+ *
+ * 2. SOURCE FETCHING OVERLAPS THE DIAGNOSTIC. The three diagnostic questions
+ *    need no network at all, so the wiki fetches for every selected expectation
+ *    run underneath them. By the time the learner answers question three the
+ *    grounding material is usually already in hand and the first chapter call
+ *    can fire immediately.
+ *
+ * Carried over from NowPod and still load-bearing:
+ *
+ * - The runId stale-async guard (isCurrentRun). More async phases than NowPod
+ *   had means more ways to strand a promise that then writes into a dead run.
+ * - Overlapping generation with playback: the next chapter starts generating
+ *   the moment the checkpoint resolves, while the current chapter's audio tail
+ *   is still playing. The checkpoint OUTCOME feeds that generation, which is
+ *   why it is resolved during the riff rather than at the end.
  */
 
 import { API_KEY_STORAGE_KEY, CHECKPOINT_LINES, CHECKPOINT_OUTCOME } from './config.js';
@@ -22,6 +34,8 @@ import * as sources from './sources/index.js';
 import * as claude from './claude.js';
 import * as assessment from './assessment.js';
 import * as objectivesLib from './objectives.js';
+import * as curriculum from './curriculum/index.js';
+import { CURRICULUM, byStrand } from './curriculum/ontario-sci-7-d.js';
 import * as tts from './tts.js';
 import * as store from './store.js';
 import * as ui from './ui.js';
@@ -30,17 +44,52 @@ import * as ui from './ui.js';
 let state = null;
 let runCounter = 0;
 
+/** The lesson an educator locked in, read from the URL. */
+let lesson = null;
+
 /** Lets an open checkpoint be resolved from outside the play loop. */
 let checkpointResolve = null;
 
 function main() {
   ui.init();
-  ui.bindHandlers({ onStart, onSkip, onRestart });
+  ui.bindHandlers({
+    onStart,
+    onSkip,
+    onRestart,
+    onSelectionChange: refreshLessonLink,
+    onPreviewLesson,
+  });
   ui.setApiKey(localStorage.getItem(API_KEY_STORAGE_KEY) ?? '');
-  ui.showView('start');
   tts.initVoices();
   store.flush(); // drain anything stranded by a previous session's bad wifi
   reportPending();
+
+  window.addEventListener('hashchange', route);
+  route();
+}
+
+/**
+ * One decision, taken from the URL: a hash carrying a valid expectation
+ * selection puts the app in learner mode with that lesson locked; anything else
+ * shows the educator's picker. This is what "locked in for the learner" means
+ * with no accounts and no server — a learner opening the link gets an interface
+ * with no control that changes what is taught.
+ */
+function route() {
+  onRestart({ silent: true });
+  lesson = curriculum.parseLessonConfig(location.hash);
+
+  if (lesson) {
+    ui.renderLockedLesson(curriculum.toObjectives(lesson.codes), {
+      curriculumLabel: CURRICULUM.label,
+      strandTitle: CURRICULUM.strandTitle,
+    });
+    ui.showView('start');
+  } else {
+    ui.renderEducatorPicker(byStrand(), CURRICULUM);
+    refreshLessonLink();
+    ui.showView('educator');
+  }
 }
 
 /** True while this run is still the active one. */
@@ -54,28 +103,51 @@ async function reportPending() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Educator mode                                                       */
+/* ------------------------------------------------------------------ */
+
+/** Live-update the shareable link as the educator checks expectations. */
+function refreshLessonLink() {
+  const selection = ui.readEducatorSelection();
+  const valid = curriculum.isValidSelection(selection.codes);
+  ui.setLessonLink(
+    valid ? new URL(curriculum.encodeLessonConfig(selection), location.href).href : '',
+    selection.codes.length
+  );
+}
+
+/** "Preview as a learner" — the educator's own selection, locked the same way. */
+function onPreviewLesson() {
+  const selection = ui.readEducatorSelection();
+  if (!curriculum.isValidSelection(selection.codes)) return;
+  location.hash = curriculum.encodeLessonConfig(selection);
+}
+
+/* ------------------------------------------------------------------ */
 /* Start                                                               */
 /* ------------------------------------------------------------------ */
 
 async function onStart() {
-  const { topic, gradeBand, apiKey } = ui.readStart();
-  if (!topic) return;
+  if (!lesson) return;
+  const { apiKey } = ui.readStart();
   if (!apiKey) {
     ui.setStatus('Paste a Claude API key to build the lesson.', true);
     return;
   }
   localStorage.setItem(API_KEY_STORAGE_KEY, apiKey);
-  ui.cancelSourceConfirm();
+
+  const objectives = curriculum.toObjectives(lesson.codes);
+  const { diagnostic, final } = curriculum.sampleItems(lesson.codes);
 
   state = {
     runId: ++runCounter,
-    topic,
-    gradeBand,
+    lessonTitle: curriculum.lessonTitle(lesson),
+    gradeBand: lesson.gradeBand,
     apiKey,
-    source: null,
-    objectives: [],
-    diagnosticItems: [],
-    finalItems: [],
+    objectives,
+    diagnosticItems: diagnostic,
+    finalItems: final,
+    sourcesByCode: new Map(),
     responses: [],
     gaps: [],
     chapterQueue: [],
@@ -83,13 +155,23 @@ async function onStart() {
     retaught: new Set(),
     priorSummary: '',
     lastCheckpoint: null,
-    session: store.newSession({ topic, gradeBand, mode: 'explore' }),
+    session: store.newSession({
+      mode: 'assigned',
+      topic: curriculum.lessonTitle(lesson),
+      gradeBand: lesson.gradeBand,
+      curriculumId: CURRICULUM.id,
+      expectations: lesson.codes,
+      objectives,
+    }),
   };
 
   try {
-    if (!(await research())) return;
-    if (!(await planLesson())) return;
+    // Sources fetch underneath the diagnostic rather than in front of it. The
+    // three questions need no network, so this costs the learner nothing.
+    const gathering = gatherSources(state);
+
     if (!(await runDiagnostic())) return;
+    if (!(await gathering)) return;
     if (!(await teach())) return;
     await runFinalQuiz();
     await finish();
@@ -103,80 +185,25 @@ async function onStart() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Research                                                            */
+/* Sources                                                             */
 /* ------------------------------------------------------------------ */
 
-async function research() {
-  const run = state;
-  ui.setStatus(`Looking up "${run.topic}"…`);
-
-  const { candidates, needsConfirmation } = await sources.research(run.topic, {
+/**
+ * Pull grounding material for every selected expectation, in parallel.
+ *
+ * Fails soft all the way down: an expectation whose articles are missing still
+ * gets a chapter, because the curriculum `brief` carries enough for the model
+ * to teach from. Losing the wiki text costs depth, not the lesson.
+ */
+async function gatherSources(run) {
+  const { byCode, refs } = await sources.buildLessonSources(run.objectives, {
     gradeBand: run.gradeBand,
   });
   if (!isCurrentRun(run)) return false;
 
-  let chosen = candidates[0];
-  if (needsConfirmation) {
-    ui.setStatus('');
-    chosen = await ui.showSourceConfirm(run.topic, candidates);
-    if (!isCurrentRun(run)) return false;
-    if (!chosen) {
-      ui.setStatus('No problem — reword your topic and start again.');
-      return false;
-    }
-  }
-
-  ui.setStatus(`Reading up on "${chosen.title}"…`);
-  run.source = await sources.build(chosen);
-  if (!isCurrentRun(run)) return false;
-
-  // Reference list (spec §12): the articles actually used, not a generic note.
-  ui.renderReferences(run.source.refs);
-  run.session.refs = run.source.refs;
-  run.session.topic = run.source.title;
-  return true;
-}
-
-/* ------------------------------------------------------------------ */
-/* Plan                                                                */
-/* ------------------------------------------------------------------ */
-
-async function planLesson() {
-  const run = state;
-  ui.setStatus('Working out what this lesson should cover…');
-
-  const result = await claude.plan(
-    {
-      topic: run.source.title,
-      source: run.source.text,
-      gradeBand: run.gradeBand,
-      // Assigned mode passes the teacher's objectives here; explore mode
-      // leaves it undefined and the model infers them.
-      objectives: run.assignedObjectives,
-    },
-    { apiKey: run.apiKey }
-  );
-  if (!isCurrentRun(run)) return false;
-
-  run.objectives = result.objectives;
-  run.diagnosticItems = result.diagnostic;
-
-  // Guard the parallel-form property (spec §9). A wrap-up item that reuses a
-  // diagnostic prompt turns the growth delta into a memory test, so drop it —
-  // but only if enough items survive to still measure anything.
-  const { duplicates } = assessment.checkParallelForms(result.diagnostic, result.final);
-  if (duplicates.length > 0) {
-    const deduped = result.final.filter((i) => !duplicates.includes(i));
-    run.finalItems = deduped.length >= 2 ? deduped : result.final;
-    console.warn(
-      `${duplicates.length} wrap-up item(s) duplicated the diagnostic.`,
-      deduped.length >= 2 ? 'Dropped.' : 'Kept — too few items would remain.'
-    );
-  } else {
-    run.finalItems = result.final;
-  }
-
-  run.session.objectives = run.objectives;
+  run.sourcesByCode = byCode;
+  ui.renderReferences(refs);
+  run.session.refs = refs;
   return true;
 }
 
@@ -194,7 +221,7 @@ async function runDiagnostic() {
     // No feedback during the diagnostic: showing the answer here would teach
     // the very thing being measured and contaminate the baseline (spec §9).
     const answer = await ui.askItem(item, {
-      heading: 'Before we start — what do you already know?',
+      heading: 'Before we start — what do you already think?',
       index: i,
       total: run.diagnosticItems.length,
       showFeedback: false,
@@ -217,7 +244,7 @@ async function runDiagnostic() {
   run.chapterQueue = objectivesLib.planChapters(run.objectives, run.gaps);
 
   if (run.chapterQueue.length === 0) {
-    throw new Error('Could not build a lesson plan from that topic — try another.');
+    throw new Error('Could not build a lesson plan from that selection.');
   }
   return true;
 }
@@ -228,9 +255,12 @@ async function runDiagnostic() {
 
 function chapterInput(chapter, index, total) {
   const run = state;
+  const source = run.sourcesByCode.get(chapter.objectiveId);
   return {
-    topic: run.source.title,
-    source: run.source.text,
+    lessonTitle: run.lessonTitle,
+    // Only this expectation's material — not the whole lesson's. A focused
+    // prompt teaches the expectation rather than the topic around it.
+    source: source?.text ?? '',
     gradeBand: run.gradeBand,
     chapter,
     priorSummary: run.priorSummary,
@@ -242,7 +272,7 @@ function chapterInput(chapter, index, total) {
 
 /**
  * The teaching loop. The chapter queue is mutable: a missed checkpoint
- * re-queues its objective immediately next with a different strategy
+ * re-queues its expectation immediately next with a different strategy
  * (objectives.applyCheckpoint), so the plan adapts as it runs.
  */
 async function teach() {
@@ -255,7 +285,7 @@ async function teach() {
   const plannedTotal = run.chapterQueue.length;
   let index = 0;
 
-  ui.setChapterHeader(run.source.title, 'Preparing the first chapter…', '');
+  ui.setChapterHeader(run.lessonTitle, 'Preparing the first chapter…', '');
   let pending = claude.chapter(chapterInput(run.chapterQueue[0], 0, plannedTotal), {
     apiKey: run.apiKey,
   });
@@ -267,9 +297,10 @@ async function teach() {
 
     const isLast = run.chapterQueue.length === 0;
     ui.setChapterHeader(
-      run.source.title,
+      run.lessonTitle,
       `Chapter ${index + 1} of about ${Math.max(plannedTotal, index + 1)}`,
-      planned.isReteach ? `Another look at: ${planned.objectiveText}` : planned.objectiveText
+      planned.isReteach ? `Another look at: ${planned.objectiveShort}` : planned.objectiveShort,
+      planned.objectiveId
     );
     ui.renderChapterLines(generated.lines);
 
@@ -280,6 +311,7 @@ async function teach() {
     run.lastCheckpoint = { objectiveText: planned.objectiveText, outcome };
     run.playedChapters.push({
       objectiveId: planned.objectiveId,
+      status: planned.status,
       isReteach: Boolean(planned.isReteach),
       lines: generated.lines,
       summary: generated.summary,
@@ -297,9 +329,10 @@ async function teach() {
     index += 1;
     if (run.chapterQueue.length > 0) {
       ui.setChapterHeader(
-        run.source.title,
+        run.lessonTitle,
         `Chapter ${index} done — preparing the next…`,
-        run.chapterQueue[0].objectiveText
+        run.chapterQueue[0].objectiveShort,
+        run.chapterQueue[0].objectiveId
       );
       pending = claude.chapter(
         chapterInput(run.chapterQueue[0], index, Math.max(plannedTotal, index + 1)),
@@ -317,7 +350,7 @@ async function teach() {
  * Play one chapter and collect its checkpoint outcome.
  *
  * The checkpoint panel opens as Host A asks the question, and Host B's riff is
- * the answer window. If the student answers, playback continues uninterrupted.
+ * the answer window. If the learner answers, playback continues uninterrupted.
  * If they don't, Host A speaks the answer aloud afterwards (spec §6) — the show
  * never goes silent waiting, and never pretends the question wasn't asked.
  *
@@ -348,7 +381,7 @@ async function playChapter(generated, planned) {
   // Playback must never reject the loop. tts.speakLine degrades to a pacing
   // timer rather than throwing, but a rejection here would strand the
   // checkpoint promise forever and hang the lesson, so it is neutralized at
-  // the boundary too — a stalled lesson is the one failure a student cannot
+  // the boundary too — a stalled lesson is the one failure a learner cannot
   // work around.
   const finished = playback.catch((err) => {
     console.warn('Playback failed; continuing without audio.', err);
@@ -422,7 +455,7 @@ async function runFinalQuiz() {
   for (const [i, item] of run.finalItems.entries()) {
     const askedAt = Date.now();
     // Feedback IS shown here — the measurement is already taken by the time it
-    // appears, and a student who just finished a lesson deserves to know.
+    // appears, and a learner who just finished a lesson deserves to know.
     const answer = await ui.askItem(item, {
       heading: 'Last thing — show what you picked up',
       index: i,
@@ -474,16 +507,18 @@ function onSkip() {
   checkpointResolve?.(assessment.NO_ANSWER);
 }
 
-/** Restart → invalidate the run so stale async work can't write into it. */
-function onRestart() {
+/**
+ * Restart → invalidate the run so stale async work can't write into it.
+ * `silent` is used by the router, which is about to pick its own view.
+ */
+function onRestart(opts = {}) {
   runCounter += 1;
   state = null;
   checkpointResolve = null;
   tts.stop();
   ui.hideCheckpoint();
-  ui.hideSourceConfirm();
   ui.setStatus('');
-  ui.showView('start');
+  if (opts.silent !== true) ui.showView(lesson ? 'start' : 'educator');
   reportPending();
 }
 

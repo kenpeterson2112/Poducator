@@ -90,6 +90,8 @@ export function isRemote() {
  * @property {'assigned'|'explore'} mode
  * @property {string} topic
  * @property {string} gradeBand
+ * @property {string|null} curriculumId  Which curriculum the expectations came from.
+ * @property {string[]} expectations     The codes the educator locked in.
  * @property {Array} objectives
  * @property {Array} responses
  * @property {Array} chapters
@@ -111,9 +113,11 @@ export function newSession(init) {
     lessonId: null,
     classCode: null,
     pseudonym: null,
-    mode: 'explore',
+    mode: 'assigned',
     topic: '',
-    gradeBand: 'high',
+    gradeBand: 'middle',
+    curriculumId: null,
+    expectations: [],
     objectives: [],
     responses: [],
     chapters: [],
@@ -193,6 +197,8 @@ function toRemotePayload(session) {
     pseudonym: session.pseudonym,
     mode: session.mode,
     topic: session.topic,
+    curriculumId: session.curriculumId,
+    expectations: session.expectations,
     startedAt: session.startedAt,
     completedAt: session.completedAt,
     objectives: session.objectives,
@@ -202,6 +208,10 @@ function toRemotePayload(session) {
       phase: r.phase,
       answerIndex: r.answerIndex,
       correct: r.correct,
+      // What the wrong answer reveals. This is the field that lets a dashboard
+      // say "7 students think symmetry is decorative" rather than "7 missed
+      // D2.4" — and it carries no information about who the student is.
+      misconception: r.misconception ?? null,
       latencyMs: r.latencyMs,
       askedAt: r.askedAt,
     })),

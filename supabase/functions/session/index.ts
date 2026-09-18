@@ -70,7 +70,9 @@ async function validateClass(classCode: string | null) {
 async function generate(req: Request, body: Record<string, unknown>) {
   if (!ANTHROPIC_KEY) return json({ error: { message: 'Server API key not configured.' } }, 500);
 
-  // Explore mode carries no class code; assigned mode must present a valid one.
+  // Phase 1 lessons travel in a URL and carry no class code. Once a lesson is
+  // issued through a class code, that code must be valid before a call is
+  // proxied on it.
   const classCode = req.headers.get('x-poducator-class');
   if (classCode && !(await validateClass(classCode))) {
     return json({ error: { message: 'Unknown class code.' } }, 403);
@@ -112,6 +114,10 @@ async function recordSession(payload: Record<string, any>) {
     pseudonym: payload.pseudonym ?? null,
     mode: payload.mode === 'assigned' ? 'assigned' : 'explore',
     topic: String(payload.topic ?? '').slice(0, 500),
+    curriculum_id: payload.curriculumId ? String(payload.curriculumId).slice(0, 100) : null,
+    expectations: Array.isArray(payload.expectations)
+      ? payload.expectations.slice(0, 8).map((c: unknown) => String(c).slice(0, 20))
+      : [],
     objectives: payload.objectives ?? [],
     refs: payload.refs ?? [],
     chapters: payload.chapters ?? [],
@@ -127,6 +133,9 @@ async function recordSession(payload: Record<string, any>) {
     item_id: String(r.itemId ?? ''),
     answer_index: Number.isInteger(r.answerIndex) ? r.answerIndex : null,
     correct: Boolean(r.correct),
+    // A slug from the item bank, describing an idea rather than a person.
+    // Capped like every other free-ish string that crosses this boundary.
+    misconception: r.misconception ? String(r.misconception).slice(0, 80) : null,
     latency_ms: Number.isFinite(r.latencyMs) ? Math.round(r.latencyMs) : null,
     asked_at: r.askedAt ?? new Date().toISOString(),
   }));
