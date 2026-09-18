@@ -40,6 +40,7 @@ let onSelectionChange = () => {};
 export function init() {
   const byId = (id) => document.getElementById(id);
   els.views = {
+    student: byId('student-view'),
     educator: byId('educator-view'),
     library: byId('library-view'),
     start: byId('start-view'),
@@ -88,6 +89,21 @@ export function init() {
   els.referenceLists = Array.from(document.querySelectorAll('[data-slot="references"]'));
   els.offlineNote = byId('offline-note');
 
+  els.studentForm = byId('student-form');
+  els.studentTopic = byId('student-topic');
+  els.studentLength = byId('student-length');
+  els.studentGrade = byId('student-grade');
+  els.studentQuickCheck = byId('student-quickcheck');
+  els.studentPassField = byId('student-pass-field');
+  els.studentPassphrase = byId('student-passphrase');
+  els.studentStatus = byId('student-status');
+  els.confirmPanel = byId('confirm-panel');
+  els.confirmPrompt = byId('confirm-prompt');
+  els.confirmOptions = byId('confirm-options');
+  els.confirmNoneBtn = byId('confirm-none-btn');
+  els.resultHeading = byId('result-heading');
+  els.resultCaveat = byId('result-caveat');
+
   els.libraryBtn = byId('library-btn');
   els.libraryList = byId('library-list');
   els.libraryEmpty = byId('library-empty');
@@ -110,6 +126,12 @@ export function showView(name) {
  * required. Driven by config.usingProxy() so the UI and the orchestrator can
  * never disagree about what the learner is being asked for.
  */
+export function setStudentCredentialMode(proxied, stored) {
+  els.studentPassField.hidden = !proxied;
+  els.studentPassphrase.required = proxied;
+  if (stored) els.studentPassphrase.value = stored;
+}
+
 export function setCredentialMode(proxied) {
   els.passphraseField.hidden = !proxied;
   els.devKeyField.hidden = proxied;
@@ -687,6 +709,154 @@ export function renderLibrary(sessions) {
 /** Handlers the library rows call into; filled by bindHandlers. */
 let libraryHandlers = {};
 
+/* ------------------------------------------------------------------ */
+/* Student mode                                                        */
+/* ------------------------------------------------------------------ */
+
+export function readStudent() {
+  return {
+    topic: els.studentTopic.value.trim(),
+    length: els.studentLength.value,
+    gradeBand: els.studentGrade.value,
+    wantDiagnostic: els.studentQuickCheck.checked,
+    passphrase: els.studentPassphrase.value.trim(),
+  };
+}
+
+export function setStudentStatus(message, isError = false) {
+  els.studentStatus.textContent = message;
+  els.studentStatus.classList.toggle('status--error', isError);
+}
+
+/** Cleanup handle for an open source-confirmation panel, if any. */
+let openConfirm = null;
+
+/**
+ * "Which one did you mean?" — shown only when the topic is ambiguous, and
+ * always BEFORE any generation call. A learner has no teacher to catch a lesson
+ * that quietly taught them about the wrong Mercury.
+ * @returns {Promise<Object|null>} the chosen candidate, or null to reword
+ */
+export function showSourceConfirm(topic, candidates) {
+  cancelSourceConfirm();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      hideSourceConfirm();
+      resolve(value);
+    };
+
+    els.confirmPrompt.textContent = `A few things match "${topic}" — which did you mean?`;
+    els.confirmOptions.replaceChildren(
+      ...candidates.map((candidate) => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn candidate';
+
+        const title = document.createElement('span');
+        title.className = 'candidate__title';
+        title.textContent = candidate.title;
+
+        const desc = document.createElement('span');
+        desc.className = 'candidate__desc';
+        desc.textContent =
+          candidate.description || candidate.summary.slice(0, 140) || 'No description available';
+
+        btn.append(title, desc);
+        btn.addEventListener('click', () => settle(candidate));
+        li.append(btn);
+        return li;
+      })
+    );
+
+    const onNone = () => settle(null);
+    els.confirmNoneBtn.addEventListener('click', onNone);
+    openConfirm = {
+      cancel: () => settle(null),
+      cleanup: () => els.confirmNoneBtn.removeEventListener('click', onNone),
+    };
+    els.confirmPanel.hidden = false;
+  });
+}
+
+export function hideSourceConfirm() {
+  if (openConfirm) {
+    openConfirm.cleanup();
+    openConfirm = null;
+  }
+  els.confirmPanel.hidden = true;
+  els.confirmOptions.replaceChildren();
+}
+
+export function cancelSourceConfirm() {
+  openConfirm?.cancel();
+}
+
+/**
+ * Swap the result screen's wording for the mode that produced it.
+ *
+ * Both strings are hardcoded for curriculum mode in index.html and are simply
+ * FALSE in student mode: nothing "moved" when nothing was measured, and there
+ * were no three questions after.
+ * @param {'curriculum'|'student'} mode
+ */
+export function setResultMode(mode) {
+  const student = mode === 'student';
+  els.resultHeading.textContent = student ? "Here's what we covered." : "Here's what moved.";
+  els.resultCaveat.textContent = student
+    ? 'This one was not marked. The questions along the way were there to steer the ' +
+      'podcast, not to score you — so treat anything below as a nudge about where to ' +
+      'look again, not a result.'
+    : 'Three questions before and three after is a signal about where to look next — ' +
+      'not a grade, and not a measurement. Your teacher sees this alongside everything ' +
+      'else they know about your work.';
+}
+
+/**
+ * Student-mode wrap-up: what was covered, and what is worth another look.
+ * No bars, no percentages — student mode does not score (spec §7b).
+ * @param {Array<{id: string, text: string, short: string}>} objectives
+ * @param {Array<{objectiveId: string, outcome: string}>} chapters
+ */
+export function renderStudentWrapUp(objectives, chapters) {
+  const byId = new Map(objectives.map((o) => [o.id, o]));
+  const missed = chapters.filter((c) => c.outcome !== 'correct');
+
+  els.resultSummary.textContent =
+    missed.length === 0
+      ? `You covered ${chapters.length} idea${chapters.length === 1 ? '' : 's'} and the checks all landed.`
+      : `You covered ${chapters.length} idea${chapters.length === 1 ? '' : 's'}. ` +
+        `${missed.length} ${missed.length === 1 ? 'is' : 'are'} worth another look.`;
+
+  els.resultObjectives.replaceChildren(
+    ...chapters.map((chapter) => {
+      const objective = byId.get(chapter.objectiveId);
+      const li = document.createElement('li');
+      li.className = 'objective-result';
+
+      const head = document.createElement('p');
+      head.className = 'objective-result__text';
+      head.textContent = objective?.text ?? chapter.objectiveShort ?? chapter.objectiveId;
+
+      const label = document.createElement('p');
+      label.className = 'objective-result__label';
+      label.textContent =
+        chapter.outcome === 'correct'
+          ? 'The check on this one landed.'
+          : chapter.outcome === 'no_response'
+            ? 'You skipped the check on this one.'
+            : 'Worth another look.';
+
+      li.append(head, label);
+      return li;
+    })
+  );
+}
+
 export function bindHandlers(handlers) {
   onSelectionChange = handlers.onSelectionChange ?? (() => {});
 
@@ -698,6 +868,11 @@ export function bindHandlers(handlers) {
   els.previewBtn.addEventListener('click', handlers.onPreviewLesson);
   els.copyLinkBtn.addEventListener('click', copyLessonLink);
   libraryHandlers = handlers;
+
+  els.studentForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    handlers.onStudentStart?.();
+  });
 
   els.libraryBtn.addEventListener('click', () => handlers.onOpenLibrary?.());
   els.exportBtn.addEventListener('click', () => {

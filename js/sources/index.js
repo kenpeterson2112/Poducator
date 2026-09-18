@@ -1,11 +1,15 @@
 /**
- * sources/index.js — grounding material for one curriculum expectation (spec §8).
+ * sources/index.js — grounding material for a lesson (spec §8).
  *
- * What changed when the app became curriculum-driven: there is no search step
- * and no "which one did you mean?" any more. Each expectation carries curated,
- * hand-verified article titles in js/curriculum/ontario-sci-7-d.js, so the
- * ambiguity that made the confirmation step necessary does not arise. Left to a
- * search, "symmetry" lands on group theory.
+ * Two paths, because the app has two modes:
+ *
+ *   CURRICULUM MODE — each expectation carries curated, hand-verified article
+ *   titles in js/curriculum/ontario-sci-7-d.js, so there is no search step and
+ *   no ambiguity to resolve. Left to a search, "symmetry" lands on group theory.
+ *
+ *   STUDENT MODE — the learner types a topic, so search and the "which one did
+ *   you mean?" step come back (research/build below). The curated shortcut is
+ *   not available when nobody curated anything.
  *
  * Sourcing is now PER EXPECTATION rather than one blended blob for the whole
  * lesson. Each chapter call gets only the material for the expectation it is
@@ -37,6 +41,86 @@ import * as mediawiki from './mediawiki.js';
 /** Look up a source by id. */
 export function sourceById(id) {
   return SOURCES.find((s) => s.id === id) ?? null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Student mode: free-topic research                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Pick the search source for a grade band. Younger bands start at Simple
+ * English, which carries the same facts in shorter sentences.
+ */
+function primaryFor(gradeBand) {
+  const prefer = GRADE_BANDS[gradeBand]?.prefer ?? 'general';
+  return sourceById(prefer === 'simple' ? 'simple' : 'wikipedia') ?? sourceById('wikipedia');
+}
+
+/**
+ * Phase 1 of student research: find candidate articles for a typed topic and
+ * decide whether to ask which one was meant.
+ *
+ * Falls back to Wikipedia when the preferred source comes up empty — Simple
+ * English has far fewer articles, and a thin result there should not read to a
+ * learner as "no such topic".
+ *
+ * @param {string} topic
+ * @param {{gradeBand?: string}} [opts]
+ * @returns {Promise<{candidates: import('./mediawiki.js').Candidate[], needsConfirmation: boolean}>}
+ */
+export async function research(topic, opts = {}) {
+  const primary = primaryFor(opts.gradeBand);
+  let { candidates, sawDisambiguation } = await mediawiki.findCandidates(primary, topic);
+
+  if (candidates.length === 0 && primary.id !== 'wikipedia') {
+    ({ candidates, sawDisambiguation } = await mediawiki.findCandidates(
+      sourceById('wikipedia'),
+      topic
+    ));
+  }
+
+  if (candidates.length === 0) {
+    throw new Error(`Couldn't find anything on "${topic}" — try rewording it.`);
+  }
+
+  return {
+    candidates,
+    needsConfirmation: sawDisambiguation || mediawiki.titlesCollide(topic, candidates),
+  };
+}
+
+/**
+ * Phase 2: build grounding material from the confirmed candidate.
+ *
+ * Unlike curriculum mode there is no `brief` to lean on, so the article body
+ * carries the whole load and the instructional sources matter more.
+ *
+ * @param {import('./mediawiki.js').Candidate} candidate
+ * @returns {Promise<LessonSource>}
+ */
+export async function build(candidate) {
+  const source = sourceById(candidate.sourceId) ?? sourceById('wikipedia');
+  const perTitle = Math.floor(SOURCE_CHAR_LIMIT / 2);
+
+  const [body, instructional] = await Promise.all([
+    mediawiki.fetchExtract(source, candidate.title, perTitle).catch(() => ''),
+    findInstructional(candidate.title, perTitle),
+  ]);
+
+  const used = [
+    { label: candidate.sourceLabel, title: candidate.title, url: candidate.url,
+      text: body || candidate.summary },
+    ...instructional,
+  ];
+
+  return {
+    title: candidate.title,
+    text: used
+      .map((e) => `Reference material (${e.label} — "${e.title}"):\n${e.text}`)
+      .join('\n\n')
+      .slice(0, SOURCE_CHAR_LIMIT),
+    refs: used.map((e) => ({ title: e.title, url: e.url, label: e.label })),
+  };
 }
 
 /**

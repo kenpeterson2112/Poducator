@@ -35,9 +35,100 @@
 <main class="app-main">
 
   <!-- ============================================================= -->
-  <!-- EDUCATOR — pick the expectations, get a link                   -->
+  <!-- STUDENT — the default landing page. Open-ended topic entry.    -->
+  <!-- No score is reported for this path: the opening questions      -->
+  <!-- STEER the lesson, they do not grade the learner (spec §7b).    -->
   <!-- ============================================================= -->
-  <section id="educator-view" class="view view--active" aria-labelledby="educator-heading">
+  <section id="student-view" class="view view--active" aria-labelledby="student-heading">
+    <h2 id="student-heading" class="view__heading">What do you need to learn?</h2>
+    <p class="view__subhead">
+      Type a topic and you'll get a short podcast built from open reference
+      sources, with a couple of checks along the way.
+    </p>
+
+    <form id="student-form" class="student-form" autocomplete="off">
+      <label class="field">
+        <span class="field__label">Topic</span>
+        <input
+          id="student-topic"
+          class="field__input"
+          type="text"
+          name="topic"
+          placeholder="e.g. photosynthesis, the Treaty of Versailles, standard deviation"
+          required
+        />
+      </label>
+
+      <label class="field">
+        <span class="field__label">How long have you got?</span>
+        <select id="student-length" class="field__input" name="length">
+          <option value="short">About 5 minutes</option>
+          <option value="standard" selected>About 10 minutes</option>
+          <option value="deep">About 20 minutes</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span class="field__label">Reading level</span>
+        <select id="student-grade" class="field__input" name="gradeBand">
+          <option value="elementary">Elementary (3-5)</option>
+          <option value="middle" selected>Middle school (6-8)</option>
+          <option value="high">High school (9-12)</option>
+          <option value="college">College / adult</option>
+        </select>
+      </label>
+
+      <!-- Shown only when a server proxy is configured (js/config.js PROXY_URL).
+           Prefilled from the value P1 already remembers, so a learner types it
+           once per device rather than every lesson. -->
+      <label class="field" id="student-pass-field" hidden>
+        <span class="field__label">Class passphrase</span>
+        <input
+          id="student-passphrase"
+          class="field__input"
+          type="password"
+          name="passphrase"
+          placeholder="ETEC523"
+          autocomplete="off"
+        />
+      </label>
+
+      <label class="checkbox">
+        <input type="checkbox" id="student-quickcheck" checked />
+        <span>
+          Ask me two or three questions first
+          <small>
+            They aren't marked — they just decide what the podcast starts with.
+          </small>
+        </span>
+      </label>
+
+      <button type="submit" class="btn btn--primary" id="student-start-btn">
+        Make my podcast
+      </button>
+    </form>
+
+    <!-- Same "check before spending compute" gesture as the checkpoint panel,
+         and the same visual language. Only appears for an ambiguous topic. -->
+    <aside id="confirm-panel" class="panel" aria-labelledby="confirm-prompt" hidden>
+      <h3 id="confirm-prompt" class="panel__heading">Which one did you mean?</h3>
+      <ul id="confirm-options" class="panel__options panel__options--stacked"></ul>
+      <button type="button" class="btn" id="confirm-none-btn">
+        None of these — let me reword it
+      </button>
+    </aside>
+
+    <p id="student-status" class="status" role="status" aria-live="polite"></p>
+
+    <p class="student-teach-link">
+      Teaching a class? <a href="#teach">Build a curriculum lesson instead.</a>
+    </p>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- EDUCATOR — pick the expectations, get a link (now at #teach)   -->
+  <!-- ============================================================= -->
+  <section id="educator-view" class="view" aria-labelledby="educator-heading">
     <h2 id="educator-heading" class="view__heading">Build a lesson</h2>
     <p id="educator-curriculum" class="view__subhead"></p>
 
@@ -222,10 +313,12 @@
   <!-- ============================================================= -->
   <section id="result-view" class="view" aria-labelledby="result-heading" hidden>
     <h2 id="result-heading" class="view__heading">Here's what moved.</h2>
+    <!-- Heading and caveat are rewritten per mode by js/ui.js:setResultMode().
+         Student mode reports no score, so "what moved" would be a lie there. -->
     <p id="result-summary" class="result-summary"></p>
     <ul id="result-objectives" class="result-objectives"></ul>
 
-    <p class="result-caveat">
+    <p id="result-caveat" class="result-caveat">
       Three questions before and three after is a signal about where to look
       next — not a grade, and not a measurement. Your teacher sees this
       alongside everything else they know about your work.
@@ -249,7 +342,10 @@
     Poducator uses AI and can make mistakes. It's a study aid — not a substitute
     for your teacher or your textbook. Check the sources before citing anything.
   </small>
-  <small>Poducator · Ontario Grade 7 Science, Strand D · wiki sources · browser text-to-speech</small>
+  <!-- Deliberately not naming a curriculum: student mode teaches any topic, and
+       the curriculum label belongs on the screens that actually use one
+       (#educator-curriculum and #lesson-curriculum). -->
+  <small>Poducator · open wiki sources · browser text-to-speech</small>
 </footer>
 
 <script type="module" src="js/app.js"></script>

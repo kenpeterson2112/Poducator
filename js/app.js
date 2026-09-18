@@ -30,6 +30,11 @@
  */
 
 import {
+  LENGTHS,
+  DEFAULT_LENGTH,
+  CHAPTER_BOUNDS,
+  estimateMinutes,
+  scaleDepth,
   API_KEY_STORAGE_KEY,
   PASSPHRASE_STORAGE_KEY,
   PROXY_URL,
@@ -66,6 +71,7 @@ function main() {
     onRestart,
     onSelectionChange: refreshLessonLink,
     onPreviewLesson,
+    onStudentStart,
     onExportSession,
     onImportFile,
     onPlaySaved,
@@ -73,6 +79,7 @@ function main() {
     onOpenLibrary: openLibrary,
   });
   ui.setCredentialMode(usingProxy());
+  ui.setStudentCredentialMode(usingProxy(), localStorage.getItem(PASSPHRASE_STORAGE_KEY) ?? '');
   ui.setPassphrase(localStorage.getItem(PASSPHRASE_STORAGE_KEY) ?? '');
   ui.setApiKey(localStorage.getItem(API_KEY_STORAGE_KEY) ?? '');
   tts.initVoices();
@@ -100,6 +107,17 @@ function route() {
   }
 
   lesson = curriculum.parseLessonConfig(location.hash);
+
+  // Student mode is now the front door. A teacher who bookmarked the bare URL
+  // lands here instead of the picker — the "Teaching a class?" link on the
+  // student screen is the way back, and existing #e=… lesson links are
+  // untouched.
+  if (!lesson && location.hash !== '#teach') {
+    ui.cancelSourceConfirm();
+    ui.setStudentStatus('');
+    ui.showView('student');
+    return;
+  }
 
   if (lesson) {
     ui.renderLockedLesson(curriculum.toObjectives(lesson.codes), {
@@ -255,9 +273,24 @@ async function gatherSources(run) {
 /* Diagnostic                                                          */
 /* ------------------------------------------------------------------ */
 
-async function runDiagnostic() {
+async function runDiagnostic(opts = {}) {
   const run = state;
   ui.setStatus('');
+
+  // Student mode makes the opener optional, so an empty set is a normal path,
+  // not an error. With no answers the gap profile treats every objective as
+  // UNKNOWN, which leaves the chapter order as the model's prerequisite order.
+  if (run.diagnosticItems.length === 0) {
+    run.gaps = objectivesLib.buildGapProfile(run.objectives, [], []);
+    run.chapterQueue = objectivesLib.planChapters(run.objectives, run.gaps);
+    if (run.chapterQueue.length === 0) {
+      throw new Error('Could not build a lesson plan from that topic.');
+    }
+    applyLengthScale(run);
+    store.saveProgress(run.session);
+    return true;
+  }
+
   ui.showView('assess');
 
   for (const [i, item] of run.diagnosticItems.entries()) {
@@ -265,7 +298,7 @@ async function runDiagnostic() {
     // No feedback during the diagnostic: showing the answer here would teach
     // the very thing being measured and contaminate the baseline (spec §9).
     const answer = await ui.askItem(item, {
-      heading: 'Before we start — what do you already think?',
+      heading: opts.heading ?? 'Before we start — what do you already think?',
       index: i,
       total: run.diagnosticItems.length,
       showFeedback: false,
@@ -291,11 +324,28 @@ async function runDiagnostic() {
     throw new Error('Could not build a lesson plan from that selection.');
   }
 
+  applyLengthScale(run);
+
   // First save point. Everything before this — three answered questions — used
   // to vanish if the learner closed the tab during chapter one.
   run.session.responses = run.responses;
   store.saveProgress(run.session);
   return true;
+}
+
+/**
+ * Apply the student's chosen length to the planned chapters.
+ *
+ * Scales rather than replaces objectives.depthFor(), which already sizes each
+ * chapter by how well the opener says the learner knows it (CHAPTER_DEPTH). A
+ * flat "make everything longer" would erase that — a misconception chapter is
+ * long for a reason, and should stay longer than a solid one at every length.
+ * Curriculum mode has no length control, so this is a no-op there.
+ */
+function applyLengthScale(run) {
+  const scale = run.length?.depthScale;
+  if (!scale || scale === 1) return;
+  run.chapterQueue = run.chapterQueue.map((c) => ({ ...c, depth: scaleDepth(c.depth, scale) }));
 }
 
 /* ------------------------------------------------------------------ */
@@ -547,6 +597,7 @@ async function finish() {
     run.responses.filter((r) => r.phase === 'final')
   );
 
+  ui.setResultMode('curriculum');
   ui.renderResult(growth, run.objectives, run.gaps);
   ui.showView('result');
 
@@ -554,6 +605,162 @@ async function finish() {
   run.session.chapters = run.playedChapters;
   run.session.completedAt = new Date().toISOString();
   run.session.inProgress = false;
+  await store.enqueue(run.session);
+  ui.setResultSession(run.session);
+  reportPending();
+}
+
+/* ------------------------------------------------------------------ */
+/* Student mode (P2)                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Build the credentials object for a student run, or throw with a message fit
+ * to show the learner. Same shape curriculum mode builds in onStart —
+ * claude.js:callClaude branches on proxyUrl, so which mode is live stays one
+ * decision rather than one per call site.
+ */
+function readCredentials() {
+  if (usingProxy()) {
+    const { passphrase } = ui.readStudent();
+    const value = passphrase || localStorage.getItem(PASSPHRASE_STORAGE_KEY) || '';
+    if (!value) throw new Error('Enter the class passphrase to start.');
+    localStorage.setItem(PASSPHRASE_STORAGE_KEY, value);
+    return { proxyUrl: PROXY_URL, passphrase: value };
+  }
+  const apiKey = localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+  if (!apiKey) throw new Error('No API key saved — open a curriculum lesson once to set one.');
+  return { apiKey };
+}
+
+/**
+ * Student mode start: topic → sources → objectives → optional opener → teach.
+ *
+ * The one structural difference from curriculum mode is what happens at the
+ * end: this path does NOT score. The opening questions steer the lesson (they
+ * feed the same gap profile) and are never reported back, because with an
+ * optional opener there is often no baseline, and with model-authored items
+ * there would be no independent test to measure against. See spec §7b.
+ */
+async function onStudentStart() {
+  const { topic, length, gradeBand, wantDiagnostic } = ui.readStudent();
+  if (!topic) return;
+
+  let credentials;
+  try {
+    credentials = readCredentials();
+  } catch (err) {
+    return ui.setStudentStatus(err.message, true);
+  }
+
+  ui.cancelSourceConfirm();
+  const plan = LENGTHS[length] ?? LENGTHS[DEFAULT_LENGTH];
+
+  state = {
+    runId: ++runCounter,
+    lessonTitle: topic,
+    gradeBand,
+    credentials,
+    isStudent: true,
+    length: plan,
+    objectives: [],
+    diagnosticItems: [],
+    finalItems: [], // student mode never runs a wrap-up quiz
+    sourcesByCode: new Map(),
+    responses: [],
+    gaps: [],
+    chapterQueue: [],
+    playedChapters: [],
+    retaught: new Set(),
+    priorSummary: '',
+    lastCheckpoint: null,
+    session: store.newSession({
+      mode: 'explore',
+      topic,
+      gradeBand,
+      curriculumId: null,
+      expectations: [],
+    }),
+  };
+  const run = state;
+
+  try {
+    ui.setStudentStatus(`Looking up "${topic}"…`);
+    const { candidates, needsConfirmation } = await sources.research(topic, { gradeBand });
+    if (!isCurrentRun(run)) return;
+
+    let chosen = candidates[0];
+    if (needsConfirmation) {
+      ui.setStudentStatus('');
+      chosen = await ui.showSourceConfirm(topic, candidates);
+      if (!isCurrentRun(run)) return;
+      if (!chosen) return ui.setStudentStatus('No problem — reword it and try again.');
+    }
+
+    ui.setStudentStatus(`Reading up on "${chosen.title}"…`);
+    const source = await sources.build(chosen);
+    if (!isCurrentRun(run)) return;
+
+    run.lessonTitle = chosen.title;
+    run.session.topic = chosen.title;
+    run.session.refs = source.refs;
+    ui.renderReferences(source.refs);
+
+    ui.setStudentStatus('Working out what to cover…');
+    const planned = await claude.plan(
+      {
+        topic: chosen.title,
+        source: source.text,
+        gradeBand,
+        objectiveTarget: Math.min(plan.objectives, CHAPTER_BOUNDS.max),
+        wantDiagnostic,
+      },
+      run.credentials
+    );
+    if (!isCurrentRun(run)) return;
+
+    run.objectives = planned.objectives;
+    run.diagnosticItems = wantDiagnostic ? planned.diagnostic : [];
+    run.session.objectives = planned.objectives;
+    run.session.diagnosticItems = run.diagnosticItems;
+
+    // Every objective shares the one source blob — unlike curriculum mode,
+    // there are no per-expectation curated articles to split by.
+    for (const objective of planned.objectives) run.sourcesByCode.set(objective.id, source);
+
+    ui.setStudentStatus('');
+    if (!(await runDiagnostic({ heading: 'First — what do you already think?' }))) return;
+    if (!(await teach())) return;
+    await finishStudent();
+  } catch (err) {
+    if (!isCurrentRun(run)) return;
+    tts.stop();
+    ui.hideCheckpoint();
+    if (err?.code === 'bad_passphrase') localStorage.removeItem(PASSPHRASE_STORAGE_KEY);
+    ui.showView('student');
+    ui.setStudentStatus(err?.message ?? 'Something went wrong — try again.', true);
+  }
+}
+
+/**
+ * Student-mode wrap-up. No score, by design — see spec §7b and the note on
+ * onStudentStart above.
+ */
+async function finishStudent() {
+  const run = state;
+  if (!isCurrentRun(run)) return;
+
+  ui.setResultMode('student');
+  ui.renderStudentWrapUp(run.objectives, run.playedChapters);
+  ui.showView('result');
+
+  run.session.responses = run.responses;
+  run.session.chapters = run.playedChapters;
+  run.session.completedAt = new Date().toISOString();
+  run.session.inProgress = false;
+  // An honest label rather than a promise: the estimate is recomputed from the
+  // dialogue that actually got written, not the one requested up front.
+  run.session.estimatedMinutes = estimateMinutes(run.playedChapters.flatMap((c) => c.lines));
   await store.enqueue(run.session);
   ui.setResultSession(run.session);
   reportPending();
