@@ -12,9 +12,9 @@
 # which read this file. A manual CLI deploy would instead need the equivalent
 # flag: `supabase functions deploy session --no-verify-jwt`.
 
-# Replace with your project ref (Dashboard → Project Settings → General).
-# Not a secret; `supabase link` also fills this in.
-project_id = "your-project-ref"
+# Project ref for the Poducator Supabase project. Not a secret — it is the
+# public subdomain of every API URL this project serves.
+project_id = "dmvikgkwyybswabyrgni"
 
 [functions.session]
 verify_jwt = false
