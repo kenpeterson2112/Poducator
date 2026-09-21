@@ -66,7 +66,7 @@ export function hasDistinctVoices() {
  * Speak one dialogue line in its host's voice. Always resolves — on `end`, on
  * cancellation, or on the pacing timer.
  * @param {{speaker: 'A'|'B', text: string}} line
- * @param {{session?: {cancelled: boolean, cancelHooks: Set<Function>}}} [opts]
+ * @param {{session?: {cancelled: boolean, cancelHooks: Set<Function>}, rateMultiplier?: number}} [opts]
  * @returns {Promise<void>}
  */
 export function speakLine(line, opts = {}) {
@@ -98,7 +98,10 @@ export function speakLine(line, opts = {}) {
     const u = new SpeechSynthesisUtterance(line.text);
     if (voiceMap[line.speaker]) u.voice = voiceMap[line.speaker];
     u.pitch = hint.pitch ?? 1.0;
-    u.rate = hint.rate ?? 1.0;
+    // The host's own rate is a fixed persona quirk (config.js HOSTS); the
+    // multiplier on top is the listener's chosen speed, a device preference
+    // that has nothing to do with which host is talking.
+    u.rate = (hint.rate ?? 1.0) * (opts.rateMultiplier ?? 1);
     u.onend = settle;
     u.onerror = (e) => {
       // 'canceled'/'interrupted' come from stop() — settle right away. Anything
@@ -123,19 +126,27 @@ export function speakLine(line, opts = {}) {
 }
 
 /**
- * Speak an ordered list of lines.
+ * Speak an ordered list of lines, starting partway through if asked.
+ *
+ * `startIndex` and `rateMultiplier` exist for one reason: player controls
+ * (rewind, forward-a-few-lines, restart-this-chapter, a live speed change)
+ * all work by stopping this loop and calling it again at a new index — the
+ * same cancellation session mechanism every interruption already used, not a
+ * second pathway. app.js owns deciding *where* to resume; this just resumes.
  * @param {Array<{speaker: 'A'|'B', text: string}>} lines
  * @param {(index: number) => void} [onLineStart] Fires as each line begins.
+ * @param {{startIndex?: number, rateMultiplier?: number}} [opts]
  * @returns {Promise<void>} Resolves when finished or stopped.
  */
-export async function speakChapter(lines, onLineStart) {
+export async function speakChapter(lines, onLineStart, opts = {}) {
   const session = { cancelled: false, cancelHooks: new Set() };
   activeSession = session;
+  const { startIndex = 0, rateMultiplier = 1 } = opts;
 
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = startIndex; i < lines.length; i++) {
     if (session.cancelled) break;
     onLineStart?.(i);
-    await speakLine(lines[i], { session });
+    await speakLine(lines[i], { session, rateMultiplier });
   }
 }
 
@@ -143,12 +154,13 @@ export async function speakChapter(lines, onLineStart) {
  * Speak a single ad-hoc line outside a chapter — used for the spoken
  * checkpoint answer when the student doesn't respond (spec §6).
  * @param {{speaker: 'A'|'B', text: string}} line
+ * @param {{rateMultiplier?: number}} [opts]
  * @returns {Promise<void>}
  */
-export async function speakOne(line) {
+export async function speakOne(line, opts = {}) {
   const session = { cancelled: false, cancelHooks: new Set() };
   activeSession = session;
-  await speakLine(line, { session });
+  await speakLine(line, { session, rateMultiplier: opts.rateMultiplier ?? 1 });
 }
 
 /** Stop all speech immediately (skip / restart). */

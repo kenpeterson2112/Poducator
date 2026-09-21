@@ -74,9 +74,14 @@ export function init() {
 
   els.topicTitle = byId('topic-title');
   els.chapterProgress = byId('chapter-progress');
+  els.chapterDots = byId('chapter-dots');
   els.objectiveNow = byId('objective-now');
   els.transcript = byId('transcript');
   els.skipBtn = byId('skip-btn');
+  els.prevBtn = byId('prev-btn');
+  els.rewindBtn = byId('rewind-btn');
+  els.forwardBtn = byId('forward-btn');
+  els.speedPills = Array.from(document.querySelectorAll('.speed-pill'));
 
   els.checkpointPanel = byId('checkpoint-panel');
   els.checkpointPrompt = byId('checkpoint-prompt');
@@ -405,6 +410,40 @@ export function setChapterHeader(lessonTitle, progress, objectiveText, code) {
   els.objectiveNow.textContent = code ? `${code} · ${objectiveText}` : (objectiveText ?? '');
 }
 
+/**
+ * The chapter-dots progress indicator. Only ever built for chapters 0..current
+ * — nothing further, because in an adaptive run whether a reteach chapter
+ * exists past "current" isn't decided yet (the caller enforces this by only
+ * ever passing a real, already-live index; this function has no way to know
+ * about chapters it isn't told about, which is the point).
+ * @param {number} current Index of the chapter now playing.
+ */
+export function renderChapterDots(current) {
+  if (!els.chapterDots) return;
+  const dots = [];
+  for (let i = 0; i <= current; i++) {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = i === current ? 'chapter-dot chapter-dot--current' : 'chapter-dot chapter-dot--played';
+    btn.setAttribute(
+      'aria-label',
+      i === current ? `Chapter ${i + 1}, current` : `Review chapter ${i + 1}`
+    );
+    btn.addEventListener('click', () => libraryHandlers.onJumpToChapter?.(i));
+    li.append(btn);
+    dots.push(li);
+  }
+  els.chapterDots.replaceChildren(...dots);
+}
+
+/** Highlight whichever speed pill matches the listener's chosen rate. */
+export function setActiveSpeedPill(rate) {
+  for (const btn of els.speedPills ?? []) {
+    btn.classList.toggle('speed-pill--active', Number(btn.dataset.rate) === rate);
+  }
+}
+
 export function clearTranscript() {
   els.transcript.replaceChildren();
   currentChapterEls = [];
@@ -439,6 +478,48 @@ export function appendLine(line) {
 export function highlightLine(lineIndex) {
   currentChapterEls.forEach((el, i) => el.classList.toggle('line--active', i === lineIndex));
   scrollTo(currentChapterEls[lineIndex]);
+}
+
+/* ------------------------------------------------------------------ */
+/* Player: chapter review (an earlier, already-played chapter, tapped   */
+/* from the chapter dots)                                              */
+/* ------------------------------------------------------------------ */
+
+/** Els belonging to the current review overlay, tracked separately from
+ * currentChapterEls so entering/leaving review never disturbs the live
+ * chapter's own transcript or its highlightLine() bookkeeping. */
+let reviewEls = [];
+
+/**
+ * Append a reviewed chapter's lines below the live transcript, with a small
+ * banner marking them as a review. Deliberately additive, not a swap: the
+ * transcript accumulated so far is real content the learner has been reading,
+ * not scratch space to clear out for a temporary detour.
+ * @param {number} index Which chapter is being reviewed.
+ * @param {string} label Its short objective label, for the banner.
+ * @param {Array<{speaker: 'A'|'B', text: string}>} lines
+ */
+export function showChapterReview(index, label, lines) {
+  clearChapterReview();
+  const banner = document.createElement('li');
+  banner.className = 'line line--review-banner';
+  banner.textContent = `Reviewing chapter ${index + 1}${label ? ` — ${label}` : ''} — tap the current chapter's dot to return`;
+  reviewEls = [banner, ...lines.map(buildLineEl)];
+  els.transcript.append(...reviewEls);
+  scrollTo(banner);
+}
+
+/** Highlight within the review overlay — offset by one for the banner line. */
+export function highlightReviewLine(lineIndex) {
+  reviewEls.forEach((el, i) => el.classList.toggle('line--active', i === lineIndex + 1));
+  scrollTo(reviewEls[lineIndex + 1]);
+}
+
+/** Remove the review overlay, restoring the live transcript underneath it
+ * exactly as it was — nothing about it was ever touched. */
+export function clearChapterReview() {
+  for (const el of reviewEls) el.remove();
+  reviewEls = [];
 }
 
 /**
@@ -914,6 +995,12 @@ export function bindHandlers(handlers) {
 
   els.skipBtn.addEventListener('click', handlers.onSkip);
   els.restartBtn.addEventListener('click', () => handlers.onRestart());
+  els.prevBtn?.addEventListener('click', () => handlers.onPrevious?.());
+  els.rewindBtn?.addEventListener('click', () => handlers.onRewindLines?.());
+  els.forwardBtn?.addEventListener('click', () => handlers.onForwardLines?.());
+  for (const btn of els.speedPills ?? []) {
+    btn.addEventListener('click', () => handlers.onSetSpeed?.(Number(btn.dataset.rate)));
+  }
 }
 
 /**

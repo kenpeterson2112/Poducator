@@ -360,6 +360,20 @@ body {
   border-radius: 999px;
 }
 
+/* Visually hidden but present for screen readers — the chapter-dots progress
+   indicator (below) carries no text of its own. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ---------- Player ---------- */
 
 .player-topbar {
@@ -372,6 +386,49 @@ body {
   margin: 0 0 1rem;
   font-size: 0.9rem;
   color: var(--ink-soft);
+}
+
+/* Chapter dots: a small-N assumption (CHAPTER_BOUNDS.max = 8 in config.js)
+   means a plain flex row never needs to scroll or paginate. */
+.chapter-dots {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.chapter-dot {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  font-size: 0.7rem;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.chapter-dot--current {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  cursor: default;
+}
+@media (prefers-color-scheme: dark) {
+  .chapter-dot--current { color: #10201b; }
+}
+.chapter-dot--played:hover { border-color: var(--accent); color: var(--accent); }
+
+/* The review overlay sits below the live transcript, not swapping it out —
+   see ui.js showChapterReview(). */
+.line--review-banner {
+  background: var(--accent-soft);
+  border: 1px dashed var(--accent);
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  text-align: center;
 }
 
 .transcript {
@@ -407,8 +464,24 @@ body {
 .line--host-b .line__speaker { color: var(--host-b); }
 .line__text { display: block; }
 
-.player-controls { margin: 1rem 0; }
+.player-controls { margin: 1rem 0; display: grid; gap: 0.6rem; }
 .player-controls .btn { width: auto; text-align: center; }
+.transport-group,
+.speed-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.transport-group .btn { flex: 1 1 7rem; }
+.speed-group .btn { flex: 1 1 4rem; }
+.speed-pill--active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+@media (prefers-color-scheme: dark) {
+  .speed-pill--active { color: #10201b; }
+}
 
 /* ---------- Result ---------- */
 
