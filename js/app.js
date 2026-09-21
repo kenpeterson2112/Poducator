@@ -434,10 +434,20 @@ async function teach() {
     run.credentials
   );
 
+  // The one deliberately modal moment in the app: nothing exists yet for the
+  // learner to see or do, so say so plainly rather than leaving the player
+  // view looking inert. Opens now, switches to "ready" once chapter 1's
+  // content is actually in hand (below), and gates only chapter 1 — later
+  // chapters keep auto-playing exactly as before.
+  const started = ui.showReadyGate(run.lessonTitle);
+
   while (isCurrentRun(run) && run.chapterQueue.length > 0) {
     const planned = run.chapterQueue.shift();
     const generated = await pending;
-    if (!isCurrentRun(run)) return false;
+    if (!isCurrentRun(run)) {
+      ui.cancelReadyGate();
+      return false;
+    }
 
     const isLast = run.chapterQueue.length === 0;
     ui.setChapterHeader(
@@ -452,6 +462,12 @@ async function teach() {
     // can see "which chapter is live" without a closure into this loop.
     run.currentChapterIndex = index;
     ui.renderChapterDots(index);
+
+    if (index === 0) {
+      ui.markReadyGateReady(run.lessonTitle);
+      await started; // blocks here until Start is pressed; settle() hides the gate itself
+      if (!isCurrentRun(run)) return false; // a restart while the gate was up cancelled `started`
+    }
 
     // A restart tears the attempt down and hands back CHAPTER_RESTART rather
     // than a real outcome (see playChapter) — retry on the SAME already-
@@ -1298,6 +1314,7 @@ function onRestart(opts = {}) {
   checkpointResolve = null;
   tts.stop();
   ui.hideCheckpoint();
+  ui.cancelReadyGate(); // a dangling "waiting for Start" promise must not outlive its run
   ui.setStatus('');
   if (opts.silent !== true) ui.showView(lesson ? 'start' : 'educator');
   reportPending();

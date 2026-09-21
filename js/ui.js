@@ -88,6 +88,12 @@ export function init() {
   els.checkpointChoices = byId('checkpoint-choices');
   els.checkpointNote = byId('checkpoint-note');
 
+  els.readyGate = byId('ready-gate');
+  els.readyGateEyebrow = byId('ready-gate-eyebrow');
+  els.readyGateTitle = byId('ready-gate-title');
+  els.readyGateSpinner = byId('ready-gate-spinner');
+  els.readyGateStartBtn = byId('ready-gate-start-btn');
+
   els.resultSummary = byId('result-summary');
   els.resultObjectives = byId('result-objectives');
   els.restartBtn = byId('restart-btn');
@@ -888,6 +894,79 @@ export function hideSourceConfirm() {
 
 export function cancelSourceConfirm() {
   openConfirm?.cancel();
+}
+
+/** Cleanup handle for an open "podcast ready" gate, if any. */
+let openReadyGate = null;
+
+/**
+ * The "your podcast is ready" gate — the one deliberately modal moment in the
+ * app. Opens immediately, in a "generating" state (Start hidden); call
+ * markReadyGateReady() once chapter 1's content is actually in hand to reveal
+ * the title and the Start button. No audio plays and nothing else happens
+ * until Start is pressed. Follows showSourceConfirm's exact shape above: a
+ * module-scoped cleanup handle, settle() closes over resolve, and the click
+ * listener attaches here at open time rather than through bindHandlers,
+ * because the caller needs to `await` this click, not just react to it.
+ * @param {string} lessonTitle
+ * @returns {Promise<void>} resolves when Start is clicked (or the gate is cancelled)
+ */
+export function showReadyGate(lessonTitle) {
+  cancelReadyGate();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      hideReadyGate();
+      resolve();
+    };
+
+    els.readyGateEyebrow.textContent = 'Building your podcast…';
+    els.readyGateTitle.textContent = lessonTitle;
+    els.readyGateSpinner.hidden = false;
+    els.readyGateStartBtn.hidden = true;
+
+    const onStart = () => settle();
+    els.readyGateStartBtn.addEventListener('click', onStart);
+    openReadyGate = {
+      cancel: () => settle(),
+      cleanup: () => els.readyGateStartBtn.removeEventListener('click', onStart),
+    };
+    els.readyGate.hidden = false;
+  });
+}
+
+/**
+ * Switch the gate from "generating" to "ready" — reveals the Start button and
+ * moves focus to it. No full focus trap (this is the first modal in the app;
+ * noted as a real gap, not silently skipped), but a screen-reader user should
+ * at least be told the wait is over and land somewhere useful.
+ * @param {string} lessonTitle
+ */
+export function markReadyGateReady(lessonTitle) {
+  els.readyGateEyebrow.textContent = 'Your podcast is ready';
+  els.readyGateTitle.textContent = lessonTitle;
+  els.readyGateSpinner.hidden = true;
+  els.readyGateStartBtn.hidden = false;
+  els.readyGateStartBtn.focus();
+}
+
+export function hideReadyGate() {
+  if (openReadyGate) {
+    openReadyGate.cleanup();
+    openReadyGate = null;
+  }
+  els.readyGate.hidden = true;
+  els.readyGateStartBtn.hidden = true;
+}
+
+/** Force-resolve an open gate — a stale/abandoned run must never leave a
+ * later one waiting on a click that will never come (mirrors cancelSourceConfirm/
+ * cancelCheckpoint, called from onRestart()). */
+export function cancelReadyGate() {
+  openReadyGate?.cancel();
 }
 
 /**

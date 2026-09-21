@@ -483,6 +483,63 @@ body {
   .speed-pill--active { color: #10201b; }
 }
 
+/* The "your podcast is ready" gate — the one deliberately modal surface in the
+   app (js/ui.js showReadyGate()). Everything else here is styled to sit
+   inline; this genuinely needs to cover the viewport, because there is
+   nothing behind it worth seeing yet. */
+.ready-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(22, 28, 36, 0.72);
+}
+@media (prefers-color-scheme: light) {
+  .ready-gate { background: rgba(22, 32, 43, 0.55); }
+}
+.ready-gate__card {
+  width: 100%;
+  max-width: 24rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+.ready-gate__eyebrow {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+.ready-gate__title {
+  margin: 0 0 1.5rem;
+  font-size: 1.3rem;
+  line-height: 1.3;
+}
+.ready-gate__spinner {
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0 auto 1.5rem;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ready-gate-spin 0.9s linear infinite;
+}
+@keyframes ready-gate-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ready-gate__spinner { animation: none; }
+}
+.ready-gate__start { margin-top: 0; }
+
 /* ---------- Result ---------- */
 
 .result-summary { font-size: 1.05rem; margin: 0 0 1.25rem; }
