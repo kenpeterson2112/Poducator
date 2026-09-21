@@ -388,7 +388,11 @@
   <section id="player-view" class="view" aria-labelledby="topic-title" hidden>
     <div class="player-topbar">
       <h2 id="topic-title" class="view__heading">Lesson</h2>
-      <span class="chapter-badge" id="chapter-progress">Chapter 1</span>
+      <!-- Dots are the visible progress indicator; the text badge underneath
+           carries the same information for screen readers (dots alone are a
+           poor a11y story) and is visually hidden. -->
+      <ol id="chapter-dots" class="chapter-dots" aria-label="Chapters"></ol>
+      <span class="sr-only" id="chapter-progress">Chapter 1</span>
     </div>
     <p id="objective-now" class="objective-now"></p>
 
@@ -403,7 +407,18 @@
     </aside>
 
     <div class="player-controls">
-      <button type="button" class="btn" id="skip-btn">Skip ahead</button>
+      <div class="transport-group" role="group" aria-label="Chapter navigation">
+        <button type="button" class="btn" id="prev-btn">Previous</button>
+        <button type="button" class="btn" id="rewind-btn">Back a few lines</button>
+        <button type="button" class="btn" id="forward-btn">Ahead a few lines</button>
+        <button type="button" class="btn" id="skip-btn">Skip ahead</button>
+      </div>
+      <div class="speed-group" role="group" aria-label="Playback speed">
+        <button type="button" class="btn speed-pill" data-rate="0.75">0.75x</button>
+        <button type="button" class="btn speed-pill" data-rate="1">1x</button>
+        <button type="button" class="btn speed-pill" data-rate="1.25">1.25x</button>
+        <button type="button" class="btn speed-pill" data-rate="1.5">1.5x</button>
+      </div>
     </div>
 
     <section class="references" aria-label="References">

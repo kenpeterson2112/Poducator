@@ -131,6 +131,25 @@ export const STUDENT_DIAGNOSTIC_ITEMS = Object.freeze({ min: 2, max: 3 });
 export const CHECKPOINT_LINES = 3;
 
 /**
+ * How many lines "Previous" tolerates before it stops meaning "go back a
+ * chapter" and starts meaning "restart this one" — the same podcast-app
+ * convention as a track-back button. Reuses CHECKPOINT_LINES' "3" as this
+ * codebase's unit for a short window: the shortest chapter (a `solid`-status
+ * one, ~10 lines per CHAPTER_DEPTH) still has plenty of room past it.
+ */
+export const SMART_PREV_LINE_THRESHOLD = 3;
+
+/** How many lines "back a few" / "ahead a few" move within a chapter. */
+export const LINE_SEEK_COUNT = 3;
+
+/** Preset playback-speed multipliers, applied on top of each host's own rate. */
+export const SPEED_PRESETS = Object.freeze([0.75, 1, 1.25, 1.5]);
+
+/** localStorage key for the listener's chosen playback speed (a device
+ * preference, never part of a session record — see store.js). */
+export const SPEED_STORAGE_KEY = 'poducator_speed';
+
+/**
  * Cap on source text fed to a generation call. This is now a PER-EXPECTATION
  * budget rather than a whole-lesson one: each chapter is grounded only in the
  * material for the expectation it teaches, so the same number buys a more
