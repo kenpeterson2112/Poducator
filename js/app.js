@@ -838,7 +838,7 @@ async function onStudentStart() {
     length: plan,
     objectives: [],
     diagnosticItems: [],
-    finalItems: [], // student mode never runs a wrap-up quiz
+    finalItems: [], // populated once plan() resolves, below
     sourcesByCode: new Map(),
     responses: [],
     gaps: [],
@@ -906,6 +906,10 @@ async function onStudentStart() {
 
     run.objectives = planned.objectives;
     run.diagnosticItems = wantDiagnostic ? planned.diagnostic : [];
+    // Unlike the opener, the closing check-in isn't behind a toggle — it
+    // rides the same plan() call regardless, and the wrap-up bar below is
+    // itself the opt-in: a learner who doesn't want it just skips the bar.
+    run.finalItems = planned.final;
     run.session.objectives = planned.objectives;
     run.session.diagnosticItems = run.diagnosticItems;
 
@@ -916,6 +920,18 @@ async function onStudentStart() {
     ui.setStudentStatus('');
     if (!(await runDiagnostic({ heading: 'First — what do you already think?' }))) return;
     if (!(await teach())) return;
+
+    // A quiet, optional close — never auto-triggered, never framed as a
+    // grade. If the model returned no closing items, there's nothing to
+    // offer, so the bar never appears at all rather than gating on an empty
+    // quiz.
+    if (run.finalItems.length > 0) {
+      const choice = await ui.showWrapUpBar();
+      if (!isCurrentRun(run)) return;
+      if (choice === 'quiz') await runFinalQuiz();
+      if (!isCurrentRun(run)) return;
+    }
+
     await finishStudent();
   } catch (err) {
     if (!isCurrentRun(run)) return;
@@ -1315,6 +1331,7 @@ function onRestart(opts = {}) {
   tts.stop();
   ui.hideCheckpoint();
   ui.cancelReadyGate(); // a dangling "waiting for Start" promise must not outlive its run
+  ui.cancelWrapUpBar(); // same for a dangling "quiz or skip" choice
   ui.setStatus('');
   if (opts.silent !== true) ui.showView(lesson ? 'start' : 'educator');
   reportPending();

@@ -540,6 +540,31 @@ body {
 }
 .ready-gate__start { margin-top: 0; }
 
+/* Student mode's closing bar (js/ui.js showWrapUpBar()) — sticky like the
+   checkpoint panel, so it's reachable without extra scrolling once it
+   appears, but it is never a modal: nothing behind it is hidden or blocked. */
+.wrapup-bar {
+  position: sticky;
+  bottom: 0.75rem;
+  margin: 1.25rem 0;
+  padding: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
+.wrapup-bar__text { margin: 0; font-weight: 600; }
+.wrapup-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.wrapup-bar__actions .btn { width: auto; }
+
 /* ---------- Result ---------- */
 
 .result-summary { font-size: 1.05rem; margin: 0 0 1.25rem; }

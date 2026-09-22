@@ -439,6 +439,18 @@
       </div>
     </div>
 
+    <!-- Student mode only (js/app.js onStudentStart) — appears once the last
+         chapter finishes, in place of jumping straight to results. In-flow,
+         not a modal: the lesson is genuinely over, there's nothing left to
+         protect the learner from seeing, just a choice to make. -->
+    <div id="wrapup-bar" class="wrapup-bar" hidden>
+      <p class="wrapup-bar__text">Want to check what stuck?</p>
+      <div class="wrapup-bar__actions">
+        <button type="button" class="btn btn--primary" id="wrapup-show-btn">Show quiz</button>
+        <button type="button" class="btn btn--ghost" id="wrapup-skip-btn">Skip to results</button>
+      </div>
+    </div>
+
     <section class="references" aria-label="References">
       <h3 class="references__heading">Sources for this lesson</h3>
       <ul data-slot="references" class="references__list"></ul>

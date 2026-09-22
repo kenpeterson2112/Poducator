@@ -94,6 +94,10 @@ export function init() {
   els.readyGateSpinner = byId('ready-gate-spinner');
   els.readyGateStartBtn = byId('ready-gate-start-btn');
 
+  els.wrapUpBar = byId('wrapup-bar');
+  els.wrapUpShowBtn = byId('wrapup-show-btn');
+  els.wrapUpSkipBtn = byId('wrapup-skip-btn');
+
   els.resultSummary = byId('result-summary');
   els.resultObjectives = byId('result-objectives');
   els.restartBtn = byId('restart-btn');
@@ -967,6 +971,58 @@ export function hideReadyGate() {
  * cancelCheckpoint, called from onRestart()). */
 export function cancelReadyGate() {
   openReadyGate?.cancel();
+}
+
+/** Cleanup handle for an open wrap-up bar, if any. */
+let openWrapUpBar = null;
+
+/**
+ * Student mode's closing bar — appears once the last chapter is done, in
+ * place of jumping straight to the wrap-up quiz or the result screen.
+ * Genuinely optional, not a modal: nothing is hidden behind it, it's just a
+ * choice ("Show quiz" or "Skip to results"). Same promise idiom as
+ * showSourceConfirm/showReadyGate above.
+ * @returns {Promise<'quiz'|'skip'>}
+ */
+export function showWrapUpBar() {
+  cancelWrapUpBar();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      hideWrapUpBar();
+      resolve(value);
+    };
+
+    const onShow = () => settle('quiz');
+    const onSkip = () => settle('skip');
+    els.wrapUpShowBtn.addEventListener('click', onShow);
+    els.wrapUpSkipBtn.addEventListener('click', onSkip);
+    openWrapUpBar = {
+      cancel: () => settle('skip'),
+      cleanup: () => {
+        els.wrapUpShowBtn.removeEventListener('click', onShow);
+        els.wrapUpSkipBtn.removeEventListener('click', onSkip);
+      },
+    };
+    els.wrapUpBar.hidden = false;
+  });
+}
+
+export function hideWrapUpBar() {
+  if (openWrapUpBar) {
+    openWrapUpBar.cleanup();
+    openWrapUpBar = null;
+  }
+  els.wrapUpBar.hidden = true;
+}
+
+/** Force-resolve (as 'skip') an open bar — mirrors cancelReadyGate; called
+ * from onRestart() so leaving mid-choice can never hang a later run. */
+export function cancelWrapUpBar() {
+  openWrapUpBar?.cancel();
 }
 
 /**

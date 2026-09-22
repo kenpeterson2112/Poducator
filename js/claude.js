@@ -24,7 +24,7 @@
 
 import {
   CLAUDE, CHAPTER_SHAPE, HOSTS, ASSESSMENT, GRADE_BANDS, DEFAULT_GRADE_BAND,
-  STUDENT_DIAGNOSTIC_ITEMS,
+  STUDENT_DIAGNOSTIC_ITEMS, STUDENT_FINAL_ITEMS,
 } from './config.js';
 
 /* ------------------------------------------------------------------ */
@@ -412,8 +412,38 @@ const PLAN_SCHEMA = {
         additionalProperties: false,
       },
     },
+    // Same shape as `diagnostic` — a closing check-in, not a second
+    // measurement. Never compared against the opener; nothing computes a
+    // score from it. See buildPlanPrompt's rules below for why the questions
+    // must differ from the opener's.
+    final: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          objectiveId: { type: 'string' },
+          prompt: { type: 'string' },
+          choices: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                text: { type: 'string' },
+                misconception: { type: 'string' },
+              },
+              required: ['text'],
+              additionalProperties: false,
+            },
+          },
+          correctIndex: { type: 'integer' },
+          explanation: { type: 'string' },
+        },
+        required: ['objectiveId', 'prompt', 'choices', 'correctIndex', 'explanation'],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ['objectives', 'diagnostic'],
+  required: ['objectives', 'diagnostic', 'final'],
   additionalProperties: false,
 };
 
@@ -453,6 +483,16 @@ export function buildPlanPrompt(input) {
           '- "explanation" is one or two sentences for someone who just got it wrong. No blame.',
         ]
       : ['', '- Return an empty "diagnostic" array: this learner skipped the opening questions.']),
+    '',
+    `- Write ${STUDENT_FINAL_ITEMS.min}-${STUDENT_FINAL_ITEMS.max} closing questions for "final", ` +
+      'covering the objectives the lesson actually taught. This is a practice check for the learner ' +
+      'to see what stuck, not a measurement — nobody sees the result but them, so write it that way: ' +
+      'straightforward, a little encouraging, no trick questions.',
+    '- Different questions from "diagnostic" — same concrete-scenario style, but not the same wording ' +
+      'or the same scenario, even when "diagnostic" is empty. Repeating a question verbatim reads as ' +
+      'a memory test, not a check-in.',
+    `- Same shape as "diagnostic": exactly ${ASSESSMENT.choicesPerItem} choices, one correct, every ` +
+      'wrong choice a real misconception with its slug. Do NOT add a "not sure" choice; the app adds one.',
   ].join('\n');
 
   const user = [
@@ -466,6 +506,46 @@ export function buildPlanPrompt(input) {
   ].join('\n');
 
   return { system, messages: [{ role: 'user', content: user }] };
+}
+
+/**
+ * Parse the planning response into objectives and runtime items.
+ *
+ * Items are flattened to the same shape curriculum mode produces in
+ * js/curriculum/index.js:toItem — `choices` as strings with a parallel
+ * `misconceptions` array — so everything downstream (ui.askItem, the gap
+ * profile, the session record) treats both modes identically.
+ * @param {string} raw
+ */
+/**
+ * Flatten one raw item (a diagnostic or final-quiz entry) into the shape
+ * `ui.askItem`/`assessment.recordResponse` expect — shared because
+ * "diagnostic" and "final" are structurally identical asks with different
+ * ids and a different moment in the lesson, not different data shapes.
+ * @param {Object} raw_
+ * @param {string} idPrefix
+ * @param {number} i
+ * @param {Set<string>} validIds
+ */
+function toFlatItem(raw_, idPrefix, i, validIds) {
+  const choices = (raw_?.choices ?? []).filter((c) => typeof c?.text === 'string' && c.text.trim());
+  if (choices.length < 2 || !raw_.prompt?.trim()) return null;
+  // An item tagged to an objective that does not exist cannot steer
+  // anything, so it is dropped rather than silently mis-attributed.
+  if (!validIds.has(raw_.objectiveId)) return null;
+  const correctIndex =
+    Number.isInteger(raw_.correctIndex) && raw_.correctIndex >= 0 && raw_.correctIndex < choices.length
+      ? raw_.correctIndex
+      : 0;
+  return {
+    id: `${idPrefix}-${i + 1}`,
+    objectiveId: raw_.objectiveId,
+    prompt: raw_.prompt.trim(),
+    choices: choices.map((c) => c.text),
+    misconceptions: choices.map((c) => c.misconception ?? null),
+    correctIndex,
+    explanation: typeof raw_.explanation === 'string' ? raw_.explanation : '',
+  };
 }
 
 /**
@@ -495,34 +575,20 @@ export function parsePlanResponse(raw) {
 
   const validIds = new Set(objectives.map((o) => o.id));
   const diagnostic = (data.diagnostic ?? [])
-    .map((raw_, i) => {
-      const choices = (raw_?.choices ?? []).filter((c) => typeof c?.text === 'string' && c.text.trim());
-      if (choices.length < 2 || !raw_.prompt?.trim()) return null;
-      // An item tagged to an objective that does not exist cannot steer
-      // anything, so it is dropped rather than silently mis-attributed.
-      if (!validIds.has(raw_.objectiveId)) return null;
-      const correctIndex =
-        Number.isInteger(raw_.correctIndex) && raw_.correctIndex >= 0 && raw_.correctIndex < choices.length
-          ? raw_.correctIndex
-          : 0;
-      return {
-        id: `diagnostic-${i + 1}`,
-        objectiveId: raw_.objectiveId,
-        prompt: raw_.prompt.trim(),
-        choices: choices.map((c) => c.text),
-        misconceptions: choices.map((c) => c.misconception ?? null),
-        correctIndex,
-        explanation: typeof raw_.explanation === 'string' ? raw_.explanation : '',
-      };
-    })
+    .map((raw_, i) => toFlatItem(raw_, 'diagnostic', i, validIds))
+    .filter(Boolean);
+  const final = (data.final ?? [])
+    .map((raw_, i) => toFlatItem(raw_, 'final', i, validIds))
     .filter(Boolean);
 
-  return { objectives, diagnostic };
+  return { objectives, diagnostic, final };
 }
 
 /**
- * Plan a student-mode lesson: objectives, plus the optional opening questions.
- * @returns {Promise<{objectives: Array, diagnostic: Array}>}
+ * Plan a student-mode lesson: objectives, the optional opening questions, and
+ * a closing check-in — the same one call, so this never costs a second round
+ * trip.
+ * @returns {Promise<{objectives: Array, diagnostic: Array, final: Array}>}
  */
 export async function plan(input, opts) {
   const text = await callClaude(buildPlanPrompt(input), PLAN_SCHEMA, opts);

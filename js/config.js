@@ -124,6 +124,11 @@ export function scaleDepth(depth, scale) {
 /** How many questions the optional student-mode opener asks (spec: 2-3 tops). */
 export const STUDENT_DIAGNOSTIC_ITEMS = Object.freeze({ min: 2, max: 3 });
 
+/** How many questions the closing check-in asks — same shape as the opener,
+ * a practice moment for the learner rather than a measurement, so it never
+ * needs to be longer than the opener was. */
+export const STUDENT_FINAL_ITEMS = Object.freeze({ min: 2, max: 3 });
+
 /**
  * How many closing exchanges form the checkpoint window (spec §6): Host A's
  * question plus Host B's riff. The riff IS the answer window.
