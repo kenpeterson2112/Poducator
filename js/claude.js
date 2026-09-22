@@ -88,6 +88,7 @@ function readingGuidance(gradeBand) {
  *          chapter: import('./objectives.js').PlannedChapter,
  *          priorSummary: string, chapterIndex: number, chapterTotal: number,
  *          lastCheckpoint?: {objectiveText: string, outcome: string}|null}} input
+ * @returns {{system: string, messages: Array<{role: string, content: Array<{type: string, text: string, cache_control?: Object}>}>}}
  */
 export function buildChapterPrompt(input) {
   const {
@@ -108,7 +109,6 @@ export function buildChapterPrompt(input) {
       'the source material happens to emphasize.',
     '',
     'Rules:',
-    `- Write ${depth.minExchanges}-${depth.maxExchanges} short spoken exchanges, alternating hosts.`,
     '- This chapter teaches ONE expectation. Stay on it. Do not survey the whole topic.',
     '- Ground every factual claim in the source material. If the source is thin on something, say ' +
       'less rather than inventing more.',
@@ -132,13 +132,18 @@ export function buildChapterPrompt(input) {
     '- "spokenAnswer" is what Host A says aloud if the listener never answers: it reveals and ' +
       'explains the answer conversationally, in Host A\'s voice, and moves the show along. Two or ' +
       'three sentences. It must read naturally after Host B\'s riff.',
-    ...(isLast
-      ? ['- This is the FINAL chapter: after the checkpoint, wrap the lesson up warmly in a line or two.']
-      : []),
     '- "summary" is one sentence on what this chapter taught, used as memory for the next chapter.',
   ].join('\n');
 
-  const userParts = [
+  // Split at what's shared vs. per-student. `objectiveText`/`brief`/`anchor`/`source` are the
+  // same for every learner on this chapter of this lesson — `strategy` and `depth` are derived
+  // per-student from THEIR diagnostic gap (objectives.js:planChapters), and `isReteach`/
+  // `priorSummary`/`lastCheckpoint` depend on what they personally already did in this session.
+  // Keeping the shared part first and marking it as the cache breakpoint means a class of
+  // students starting the same assigned chapter within the same few minutes reads one cached
+  // prefix instead of each paying full price for byte-identical objective/brief/source text.
+  // See shared/prompt-caching.md § Shared prefix, varying suffix.
+  const sharedParts = [
     `Lesson: ${lessonTitle}`,
     `Chapter ${chapterIndex + 1} of ${chapterTotal}.`,
     '',
@@ -149,25 +154,33 @@ export function buildChapterPrompt(input) {
   ];
 
   if (chapter.anchor) {
-    userParts.push(
+    sharedParts.push(
       '',
       `A concrete situation you may open on, if it helps: ${chapter.anchor}. Use it or find a ` +
         'better one — do not force it.'
     );
   }
 
-  userParts.push(
+  sharedParts.push('', '<source_material>', source, '</source_material>');
+
+  const variableParts = [
+    '',
+    `Write ${depth.minExchanges}-${depth.maxExchanges} short spoken exchanges, alternating hosts.`,
+  ];
+  if (isLast) {
+    variableParts.push(
+      'This is the FINAL chapter: after the checkpoint, wrap the lesson up warmly in a line or two.'
+    );
+  }
+
+  variableParts.push(
     '',
     `The learner answered questions on this expectation before the lesson started. How to ` +
-      `approach it: ${chapter.strategy}`,
-    '',
-    '<source_material>',
-    source,
-    '</source_material>'
+      `approach it: ${chapter.strategy}`
   );
 
   if (chapter.isReteach) {
-    userParts.push(
+    variableParts.push(
       '',
       'IMPORTANT: this expectation was already taught once in this session and the learner still ' +
         'missed the check. Do not repeat the earlier explanation in different words — they have ' +
@@ -176,7 +189,7 @@ export function buildChapterPrompt(input) {
   }
 
   if (priorSummary) {
-    userParts.push('', `Earlier in this lesson: ${priorSummary}`);
+    variableParts.push('', `Earlier in this lesson: ${priorSummary}`);
   }
 
   if (lastCheckpoint) {
@@ -185,12 +198,23 @@ export function buildChapterPrompt(input) {
       incorrect: `The learner answered the last check incorrectly (on: ${lastCheckpoint.objectiveText}). Do not shame it or dwell on it; carry the corrected idea forward as you teach this chapter.`,
       no_response: `The learner did not answer the last check (on: ${lastCheckpoint.objectiveText}). Assume they may have drifted — open this chapter with a concrete hook rather than an abstract statement.`,
     }[lastCheckpoint.outcome];
-    if (note) userParts.push('', note);
+    if (note) variableParts.push('', note);
   }
 
-  userParts.push('', 'Write the chapter now.');
+  variableParts.push('', 'Write the chapter now.');
 
-  return { system, messages: [{ role: 'user', content: userParts.join('\n') }] };
+  return {
+    system,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: sharedParts.join('\n'), cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: variableParts.join('\n') },
+        ],
+      },
+    ],
+  };
 }
 
 /* ------------------------------------------------------------------ */
