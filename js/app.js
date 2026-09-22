@@ -434,10 +434,20 @@ async function teach() {
     run.credentials
   );
 
+  // The one deliberately modal moment in the app: nothing exists yet for the
+  // learner to see or do, so say so plainly rather than leaving the player
+  // view looking inert. Opens now, switches to "ready" once chapter 1's
+  // content is actually in hand (below), and gates only chapter 1 — later
+  // chapters keep auto-playing exactly as before.
+  const started = ui.showReadyGate(run.lessonTitle);
+
   while (isCurrentRun(run) && run.chapterQueue.length > 0) {
     const planned = run.chapterQueue.shift();
     const generated = await pending;
-    if (!isCurrentRun(run)) return false;
+    if (!isCurrentRun(run)) {
+      ui.cancelReadyGate();
+      return false;
+    }
 
     const isLast = run.chapterQueue.length === 0;
     ui.setChapterHeader(
@@ -452,6 +462,12 @@ async function teach() {
     // can see "which chapter is live" without a closure into this loop.
     run.currentChapterIndex = index;
     ui.renderChapterDots(index);
+
+    if (index === 0) {
+      ui.markReadyGateReady(run.lessonTitle);
+      await started; // blocks here until Start is pressed; settle() hides the gate itself
+      if (!isCurrentRun(run)) return false; // a restart while the gate was up cancelled `started`
+    }
 
     // A restart tears the attempt down and hands back CHAPTER_RESTART rather
     // than a real outcome (see playChapter) — retry on the SAME already-
@@ -822,7 +838,7 @@ async function onStudentStart() {
     length: plan,
     objectives: [],
     diagnosticItems: [],
-    finalItems: [], // student mode never runs a wrap-up quiz
+    finalItems: [], // populated once plan() resolves, below
     sourcesByCode: new Map(),
     responses: [],
     gaps: [],
@@ -890,6 +906,10 @@ async function onStudentStart() {
 
     run.objectives = planned.objectives;
     run.diagnosticItems = wantDiagnostic ? planned.diagnostic : [];
+    // Unlike the opener, the closing check-in isn't behind a toggle — it
+    // rides the same plan() call regardless, and the wrap-up bar below is
+    // itself the opt-in: a learner who doesn't want it just skips the bar.
+    run.finalItems = planned.final;
     run.session.objectives = planned.objectives;
     run.session.diagnosticItems = run.diagnosticItems;
 
@@ -900,6 +920,18 @@ async function onStudentStart() {
     ui.setStudentStatus('');
     if (!(await runDiagnostic({ heading: 'First — what do you already think?' }))) return;
     if (!(await teach())) return;
+
+    // A quiet, optional close — never auto-triggered, never framed as a
+    // grade. If the model returned no closing items, there's nothing to
+    // offer, so the bar never appears at all rather than gating on an empty
+    // quiz.
+    if (run.finalItems.length > 0) {
+      const choice = await ui.showWrapUpBar();
+      if (!isCurrentRun(run)) return;
+      if (choice === 'quiz') await runFinalQuiz();
+      if (!isCurrentRun(run)) return;
+    }
+
     await finishStudent();
   } catch (err) {
     if (!isCurrentRun(run)) return;
@@ -1298,6 +1330,8 @@ function onRestart(opts = {}) {
   checkpointResolve = null;
   tts.stop();
   ui.hideCheckpoint();
+  ui.cancelReadyGate(); // a dangling "waiting for Start" promise must not outlive its run
+  ui.cancelWrapUpBar(); // same for a dangling "quiz or skip" choice
   ui.setStatus('');
   if (opts.silent !== true) ui.showView(lesson ? 'start' : 'educator');
   reportPending();

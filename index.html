@@ -386,6 +386,24 @@
   <!-- PLAYER                                                         -->
   <!-- ============================================================= -->
   <section id="player-view" class="view" aria-labelledby="topic-title" hidden>
+    <!-- The "your podcast is ready" gate. A genuine modal — position: fixed,
+         covers the whole viewport, NOT one of the seven views showView()
+         toggles — see js/ui.js showReadyGate(). Opens the instant chapter 1
+         starts generating; closes the moment Start is pressed. Nothing else
+         in this app blocks like this on purpose: the checkpoint panel below
+         is explicitly non-modal, this is the one exception, because there is
+         genuinely nothing to show or do yet. -->
+    <div id="ready-gate" class="ready-gate" hidden>
+      <div class="ready-gate__card" role="status" aria-live="polite">
+        <p class="ready-gate__eyebrow" id="ready-gate-eyebrow">Building your podcast…</p>
+        <h2 class="ready-gate__title" id="ready-gate-title"></h2>
+        <div class="ready-gate__spinner" id="ready-gate-spinner" aria-hidden="true"></div>
+        <button type="button" class="cta ready-gate__start" id="ready-gate-start-btn" hidden>
+          Start listening
+        </button>
+      </div>
+    </div>
+
     <div class="player-topbar">
       <h2 id="topic-title" class="view__heading">Lesson</h2>
       <!-- Dots are the visible progress indicator; the text badge underneath
@@ -418,6 +436,18 @@
         <button type="button" class="btn speed-pill" data-rate="1">1x</button>
         <button type="button" class="btn speed-pill" data-rate="1.25">1.25x</button>
         <button type="button" class="btn speed-pill" data-rate="1.5">1.5x</button>
+      </div>
+    </div>
+
+    <!-- Student mode only (js/app.js onStudentStart) — appears once the last
+         chapter finishes, in place of jumping straight to results. In-flow,
+         not a modal: the lesson is genuinely over, there's nothing left to
+         protect the learner from seeing, just a choice to make. -->
+    <div id="wrapup-bar" class="wrapup-bar" hidden>
+      <p class="wrapup-bar__text">Want to check what stuck?</p>
+      <div class="wrapup-bar__actions">
+        <button type="button" class="btn btn--primary" id="wrapup-show-btn">Show quiz</button>
+        <button type="button" class="btn btn--ghost" id="wrapup-skip-btn">Skip to results</button>
       </div>
     </div>
 
