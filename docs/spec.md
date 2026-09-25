@@ -454,5 +454,10 @@ Carried over from NowPod §12, with more teeth because the audience is students:
 - **Educator item editing** — the bank is human-readable and human-editable by
   design, but there is no UI for it. §13's original "teacher review of generated
   items" is now half-solved: the items are reviewable, just not in-app.
-- **Accessibility pass** — transcript-only mode, adjustable playback rate, dyslexia-friendly type.
-- **ElevenLabs-quality TTS** — an infra swap, not an architecture change (NowPod §6).
+- **Accessibility pass** — transcript-only mode, adjustable playback rate, dyslexia-friendly type
+  (playback rate shipped; the rest is open).
+- **Real generated audio (background/lock-screen playback)** — considered and deliberately
+  deferred, not because it's hard so much as because it's a second vendor account, real billing,
+  and a new server endpoint for a school project. Sketched in full, including a provider/cost
+  comparison and why the chapter/checkpoint structure survives it untouched, in
+  [`docs/background-audio.md`](background-audio.md).

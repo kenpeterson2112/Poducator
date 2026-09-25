@@ -330,7 +330,10 @@ need a new adapter implementing the same interface as `js/sources/mediawiki.js`.
   a search rather than to nothing, but the list deserves verification.
 - Wiki depth is capped, and the D1 expectations — evaluating social and economic factors — map onto
   reference articles worse than the D2 ones do. The `brief` field carries more weight there.
-- Browser TTS quality varies by OS and browser.
+- Browser TTS quality varies by OS and browser, and — the bigger limitation — it stops when a
+  phone locks or the app backgrounds, since it isn't a real `<audio>` element and gets no lock-screen
+  exemption from the OS. A real-audio fix was scoped and costed, then deliberately deferred for this
+  project's size: see [`docs/background-audio.md`](docs/background-audio.md).
 - **3 items is a small instrument**, thinner than the 4–6 this started with. The growth delta is a
   **signal, not a measurement** — the app says so on the result screen and should keep saying so.
   Growing Success wants triangulation across observations, conversations and products; this is one
