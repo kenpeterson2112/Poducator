@@ -36,7 +36,6 @@ import {
   estimateMinutes,
   scaleDepth,
   API_KEY_STORAGE_KEY,
-  PASSPHRASE_STORAGE_KEY,
   PROXY_URL,
   usingProxy,
   CHECKPOINT_LINES,
@@ -104,8 +103,6 @@ function main() {
     onOpenLibrary: openLibrary,
   });
   ui.setCredentialMode(usingProxy());
-  ui.setStudentCredentialMode(usingProxy(), localStorage.getItem(PASSPHRASE_STORAGE_KEY) ?? '');
-  ui.setPassphrase(localStorage.getItem(PASSPHRASE_STORAGE_KEY) ?? '');
   ui.setApiKey(localStorage.getItem(API_KEY_STORAGE_KEY) ?? '');
   try {
     const stored = Number(localStorage.getItem(SPEED_STORAGE_KEY));
@@ -206,13 +203,7 @@ async function onStart() {
   // active stays a single decision made here rather than at each call site.
   let credentials;
   if (usingProxy()) {
-    const { passphrase } = ui.readStart();
-    if (!passphrase) {
-      ui.setStatus('Enter the class passphrase to start.', true);
-      return;
-    }
-    localStorage.setItem(PASSPHRASE_STORAGE_KEY, passphrase);
-    credentials = { proxyUrl: PROXY_URL, passphrase };
+    credentials = { proxyUrl: PROXY_URL };
   } else {
     const { apiKey } = ui.readStart();
     if (!apiKey) {
@@ -282,9 +273,6 @@ async function onStart() {
     if (!isCurrentRun(state)) return;
     tts.stop();
     ui.hideCheckpoint();
-    // Don't keep a passphrase the server rejected — otherwise it prefills the
-    // field on every reload and the learner retries the same wrong value.
-    if (err?.code === 'bad_passphrase') localStorage.removeItem(PASSPHRASE_STORAGE_KEY);
     ui.showView('start');
     ui.setStatus(err?.message ?? 'Something went wrong — try again.', true);
   }
@@ -794,13 +782,7 @@ async function onShare() {
  * decision rather than one per call site.
  */
 function readCredentials() {
-  if (usingProxy()) {
-    const { passphrase } = ui.readStudent();
-    const value = passphrase || localStorage.getItem(PASSPHRASE_STORAGE_KEY) || '';
-    if (!value) throw new Error('Enter the class passphrase to start.');
-    localStorage.setItem(PASSPHRASE_STORAGE_KEY, value);
-    return { proxyUrl: PROXY_URL, passphrase: value };
-  }
+  if (usingProxy()) return { proxyUrl: PROXY_URL };
   const apiKey = localStorage.getItem(API_KEY_STORAGE_KEY) || '';
   if (!apiKey) throw new Error('No API key saved — open a curriculum lesson once to set one.');
   return { apiKey };
@@ -937,7 +919,6 @@ async function onStudentStart() {
     if (!isCurrentRun(run)) return;
     tts.stop();
     ui.hideCheckpoint();
-    if (err?.code === 'bad_passphrase') localStorage.removeItem(PASSPHRASE_STORAGE_KEY);
     ui.showView('student');
     ui.setStudentStatus(err?.message ?? 'Something went wrong — try again.', true);
   }

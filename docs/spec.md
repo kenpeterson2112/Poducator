@@ -197,35 +197,16 @@ contradictory. They aren't — they just require the mapping to live somewhere o
 
 Net: anonymous by construction, de-anonymizable only by the teacher holding the roster.
 
-### 7a. The class passphrase — a separate thing from the class code
+### 7a. No access gate
 
-Two credentials exist and they are deliberately not the same mechanism:
+There is no class passphrase. The Edge Function serves anyone who has its URL. The Anthropic key
+still exists only as a function secret — never in the repo, never in a browser — so it stays
+secret; what bounds spend is a **spend limit on the Anthropic key**. The function's per-IP rate
+limiter is a speed bump, not a quota — Edge instances are ephemeral, so it cannot be relied on as
+one.
 
-| | **Class passphrase** (`ETEC523`) | **Class code** (Phase 2) |
-|---|---|---|
-| Purpose | Gates the app at all | Identifies which lesson/roster |
-| Scope | One per deployment | One per lesson |
-| Header | `x-poducator-pass` | `x-poducator-class` |
-| Checked against | `POD_PASSPHRASE` secret | the `lessons` table |
-
-Conflating them would break the roster model, so they stay distinct headers with distinct checks.
-
-**The passphrase is validated server-side, in the Edge Function, never in the browser.** This is the
-whole point: a client-side check is decorative, because anything the client compares, a learner can
-read in DevTools along with whatever it was guarding. The same reasoning rules out ever committing a
-key to this repo — it is public, so a committed key is a published key, and git history keeps it
-published after any later removal.
-
-What the gate buys, stated precisely:
-
-- It **does** keep the Anthropic key secret. The key exists only as a function secret; it is never
-  in the repo and never in a browser. That guarantee is complete.
-- It **does not** authenticate anyone. A shared passphrase gets shared. The control that actually
-  bounds a leaked passphrase is a **spend limit on the Anthropic key**. The function's per-IP rate
-  limiter is a speed bump, not a quota — Edge instances are ephemeral, so it cannot be relied on as
-  one.
-
-Rotating the passphrase each term is a secret change, not a deploy.
+The class code (Phase 2, `x-poducator-class` header, checked against the `lessons` table)
+identifies which lesson/roster a session belongs to. It is not an access control.
 
 ### 7b. Student mode reports no score
 
@@ -454,5 +435,10 @@ Carried over from NowPod §12, with more teeth because the audience is students:
 - **Educator item editing** — the bank is human-readable and human-editable by
   design, but there is no UI for it. §13's original "teacher review of generated
   items" is now half-solved: the items are reviewable, just not in-app.
-- **Accessibility pass** — transcript-only mode, adjustable playback rate, dyslexia-friendly type.
-- **ElevenLabs-quality TTS** — an infra swap, not an architecture change (NowPod §6).
+- **Accessibility pass** — transcript-only mode, adjustable playback rate, dyslexia-friendly type
+  (playback rate shipped; the rest is open).
+- **Real generated audio (background/lock-screen playback)** — considered and deliberately
+  deferred, not because it's hard so much as because it's a second vendor account, real billing,
+  and a new server endpoint for a school project. Sketched in full, including a provider/cost
+  comparison and why the chapter/checkpoint structure survives it untouched, in
+  [`docs/background-audio.md`](background-audio.md).

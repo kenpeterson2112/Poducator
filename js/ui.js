@@ -60,8 +60,6 @@ export function init() {
   els.lessonCurriculum = byId('lesson-curriculum');
   els.lockedExpectations = byId('locked-expectations');
   els.startForm = byId('start-form');
-  els.passphraseField = byId('passphrase-field');
-  els.passphraseInput = byId('passphrase-input');
   els.devKeyField = byId('devkey-field');
   els.apiKeyInput = byId('api-key-input');
   els.startStatus = byId('start-status');
@@ -109,8 +107,6 @@ export function init() {
   els.studentLength = byId('student-length');
   els.studentGrade = byId('student-grade');
   els.studentQuickCheck = byId('student-quickcheck');
-  els.studentPassField = byId('student-pass-field');
-  els.studentPassphrase = byId('student-passphrase');
   els.studentStatus = byId('student-status');
   els.confirmPanel = byId('confirm-panel');
   els.confirmPrompt = byId('confirm-prompt');
@@ -150,25 +146,13 @@ export function showView(name) {
 }
 
 /**
- * Show whichever credential field this build actually uses, and mark it
- * required. Driven by config.usingProxy() so the UI and the orchestrator can
- * never disagree about what the learner is being asked for.
+ * Show the dev API-key field only when no proxy is configured. Driven by
+ * config.usingProxy() so the UI and the orchestrator can never disagree about
+ * what the learner is being asked for.
  */
-export function setStudentCredentialMode(proxied, stored) {
-  els.studentPassField.hidden = !proxied;
-  els.studentPassphrase.required = proxied;
-  if (stored) els.studentPassphrase.value = stored;
-}
-
 export function setCredentialMode(proxied) {
-  els.passphraseField.hidden = !proxied;
   els.devKeyField.hidden = proxied;
-  els.passphraseInput.required = proxied;
   els.apiKeyInput.required = !proxied;
-}
-
-export function setPassphrase(value) {
-  if (value) els.passphraseInput.value = value;
 }
 
 export function setApiKey(value) {
@@ -177,7 +161,6 @@ export function setApiKey(value) {
 
 export function readStart() {
   return {
-    passphrase: els.passphraseInput.value.trim(),
     apiKey: els.apiKeyInput.value.trim(),
   };
 }
@@ -823,7 +806,6 @@ export function readStudent() {
     length: els.studentLength.value,
     gradeBand: els.studentGrade.value,
     wantDiagnostic: els.studentQuickCheck.checked,
-    passphrase: els.studentPassphrase.value.trim(),
   };
 }
 

@@ -176,24 +176,6 @@
           </span>
         </div>
 
-        <!-- Only when a server proxy is configured (js/config.js PROXY_URL). -->
-        <div class="lfield" id="student-pass-field" hidden>
-          <input
-            id="student-passphrase"
-            class="lfield__input"
-            type="password"
-            name="passphrase"
-            placeholder="Class passphrase"
-            aria-label="Class passphrase"
-            autocomplete="off"
-          />
-          <span class="lfield__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>
-            </svg>
-          </span>
-        </div>
-
         <label class="ltoggle">
           <input type="checkbox" id="student-quickcheck" checked />
           <span class="ltoggle__text">
@@ -315,24 +297,6 @@
     <ul id="locked-expectations" class="locked-expectations"></ul>
 
     <form id="start-form" class="start-form" autocomplete="off">
-      <!-- What a learner sees. The passphrase is checked by the server, never
-           here — a browser-side check would be decorative. -->
-      <label class="field" id="passphrase-field" hidden>
-        <span class="field__label">Class passphrase</span>
-        <input
-          id="passphrase-input"
-          class="field__input"
-          type="password"
-          name="passphrase"
-          placeholder="ETEC523"
-          autocomplete="off"
-        />
-        <small class="field__hint">
-          The passphrase your teacher gave you. No account, no API key — the key
-          stays on the server and never reaches this browser.
-        </small>
-      </label>
-
       <!-- Local-development fallback. Unhidden by js/ui.js ONLY when no proxy
            URL is configured in js/config.js, so learners never meet it. -->
       <label class="field" id="devkey-field" hidden>
@@ -348,8 +312,8 @@
         <small class="field__hint">
           No server function is configured, so this build talks to
           api.anthropic.com directly with a key you paste. Set
-          <code>PROXY_URL</code> in <code>js/config.js</code> to switch to the
-          passphrase flow.
+          <code>PROXY_URL</code> in <code>js/config.js</code> to route through
+          the server function instead.
         </small>
       </label>
 
