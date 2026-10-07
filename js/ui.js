@@ -142,7 +142,12 @@ export function showView(name) {
   const landing = name === 'student';
   els.appMain?.classList.toggle('app-main--bleed', landing);
   if (els.appHeader) els.appHeader.hidden = landing;
-  if (els.appFooter) els.appFooter.hidden = landing;
+  // The player is a fixed-height screen: only its transcript window scrolls,
+  // so the controls stay pinned at the bottom (see body.player-mode in the
+  // CSS). The footer would sit below that screen where nobody can reach it.
+  const player = name === 'player';
+  document.body.classList.toggle('player-mode', player);
+  if (els.appFooter) els.appFooter.hidden = landing || player;
 }
 
 /**
