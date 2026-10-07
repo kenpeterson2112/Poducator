@@ -166,40 +166,30 @@ python3 -m http.server 8000
 Open <http://localhost:8000>. You land on the educator picker: choose 1–3 expectations, then
 **Open as a learner** (or copy the link). Paste a Claude API key on the learner screen.
 
-### The class passphrase, and where the API key lives
+### Where the API key lives
 
-Learners type a **class passphrase** (e.g. `ETEC523`). They never see an API key, never make an
-account, and no key is ever sent to their browser.
+Learners never see an API key, never make an account, and no key is ever sent to their browser.
 
 The key lives in one place: the `ANTHROPIC_API_KEY` secret on the deployed Edge Function. It is
 not in this repo, and it must never be — **the repository is public**, so a committed key is a
 published key, git history keeps it published after any later removal, and GitHub and Anthropic
 both scan public repos and revoke what they find.
 
-**The passphrase is checked on the server, not in the browser.** That distinction is the whole
-design. A browser-side check would be decorative: anything the client compares, a learner can read
-in DevTools in about ten seconds, along with whatever it was guarding.
-
-Worth being precise about what this does and does not buy:
-
-- It **does** keep the API key secret. That part is complete — the key never leaves the server.
-- It **does not** authenticate anyone. A shared passphrase gets shared. The real bound on a leaked
-  passphrase is a **spend limit on the Anthropic key**, set in the Anthropic console. The function
-  also rate-limits per IP, but Edge instances are ephemeral, so treat that as a speed bump rather
-  than a quota.
-
-Rotate the passphrase per term by changing the `POD_PASSPHRASE` secret — no redeploy needed.
+**There is no access gate.** Anyone with the app's URL can generate lessons on your key. The
+bound on that is a **spend limit on the Anthropic key**, set in the Anthropic console. The function
+also rate-limits per IP, but Edge instances are ephemeral, so treat that as a speed bump rather
+than a quota.
 
 ### Deploying
 
 1. **Create a Supabase project** (free tier is enough).
 2. **Set the secrets** — Dashboard → Edge Functions → Secrets, or
-   `supabase secrets set ANTHROPIC_API_KEY=... POD_PASSPHRASE=ETEC523`. See
+   `supabase secrets set ANTHROPIC_API_KEY=...`. See
    [`.env.example`](.env.example) for what's needed. Never commit values.
 3. **Deploy the function:** `supabase functions deploy session --no-verify-jwt`, or let the GitHub
    integration do it — [`supabase/config.toml`](supabase/config.toml) already sets
    `verify_jwt = false` for that path. Either way this flag is required: learners hold no JWT, so
-   with verification on, every request is rejected by the platform before the passphrase is read.
+   with verification on, every request is rejected by the platform before the function runs.
 4. **Set a spend limit** on the Anthropic key. This is the control that actually bounds abuse.
 5. **Put the function URL** into `PROXY_URL` in [`js/config.js`](js/config.js) — a function URL is
    public by design and correct to commit.
@@ -269,7 +259,7 @@ same format**. That is what makes the next part work.
 ### Demo mode — iterate without paying per run
 
 Open a `.poducator` file from the library and it plays through the real player with **zero API
-calls**. No key, no passphrase, works with the network off entirely.
+calls**. No key, works with the network off entirely.
 
 So to iterate on the experience without spending anything:
 
@@ -292,7 +282,7 @@ Downloadable audio arrives with the ElevenLabs swap, not before.
 ### Running it locally
 
 Leave `PROXY_URL` empty and the app falls back to asking for a pasted API key, exactly as before —
-the passphrase field hides itself and the dev key field appears. That fallback exists so you can
+the dev key field appears on the learner screen. That fallback exists so you can
 develop without deploying anything; learners never encounter it.
 
 ## Adding a strand or a subject

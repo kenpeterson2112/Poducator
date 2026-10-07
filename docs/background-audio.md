@@ -44,7 +44,7 @@ That makes this a **`tts.js` internals swap**, not an app-wide rewrite:
 1. **Server:** one new action on the existing Supabase Edge Function (which already
    proxies Claude calls the same way) — `action: 'speak'`, taking `{ text, voice }`,
    returning real audio bytes from a TTS provider. One new secret (`TTS_API_KEY`),
-   same passphrase gate already in front of `generate`.
+   same rate limit already in front of `generate`.
 2. **Client:** `speakLine()` becomes fetch-audio → `new Audio(blobUrl)` → `.play()` →
    wait for the `ended` event, replacing `speechSynthesis.speak()` → `onend`. Same
    cancellation-session handshake `stop()` already uses (`audioEl.pause()` instead of
