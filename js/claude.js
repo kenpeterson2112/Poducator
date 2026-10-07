@@ -289,8 +289,8 @@ export function parseChapterResponse(raw, objectiveId) {
  *
  * @param {{system: string, messages: Array}} prompt
  * @param {Object} schema
- * @param {{apiKey?: string, proxyUrl?: string, passphrase?: string,
- *           classCode?: string, signal?: AbortSignal}} opts
+ * @param {{apiKey?: string, proxyUrl?: string, classCode?: string,
+ *           signal?: AbortSignal}} opts
  * @returns {Promise<string>}
  */
 async function callClaude(prompt, schema, opts) {
@@ -313,9 +313,6 @@ async function callClaude(prompt, schema, opts) {
 
   if (opts.proxyUrl) {
     url = opts.proxyUrl;
-    // The passphrase is checked by the function, never here. A client-side
-    // check would be theatre — see the note in supabase/functions/session.
-    headers['x-poducator-pass'] = opts.passphrase ?? '';
     if (opts.classCode) headers['x-poducator-class'] = opts.classCode;
   } else {
     if (!opts.apiKey) {
@@ -338,13 +335,6 @@ async function callClaude(prompt, schema, opts) {
       code = err?.error?.code ?? null;
     } catch {
       /* keep the status code */
-    }
-    // A wrong passphrase is a user mistake, not a system failure, and the
-    // start screen should say so plainly rather than surfacing "500".
-    if (code === 'bad_passphrase') {
-      const wrong = new Error('That passphrase is not right — check with your teacher.');
-      wrong.code = 'bad_passphrase';
-      throw wrong;
     }
     if (code === 'rate_limited') {
       const busy = new Error('Too many requests right now — wait a minute and try again.');

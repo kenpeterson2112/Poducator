@@ -267,17 +267,14 @@ export const API_KEY_STORAGE_KEY = 'poducator_api_key';
  *   https://<project-ref>.supabase.co/functions/v1/session
  *
  * NOT a secret — a function URL is meant to be public, and committing it is
- * correct. The secrets (the Anthropic key and the class passphrase) live in
- * that function's environment and never appear in this repo.
+ * correct. The secret (the Anthropic key) lives in that function's
+ * environment and never appears in this repo.
  *
  * Empty string = local development mode: the app falls back to asking for a
  * pasted API key, exactly as it did before the gate existed. Blank it locally
  * if you want that fallback back; leave it set for anything learners touch.
  */
 export const PROXY_URL = 'https://dmvikgkwyybswabyrgni.supabase.co/functions/v1/session';
-
-/** localStorage key for the class passphrase, so a learner types it once. */
-export const PASSPHRASE_STORAGE_KEY = 'poducator_passphrase';
 
 /**
  * Which credential mode is active. UI and orchestrator both read this so they

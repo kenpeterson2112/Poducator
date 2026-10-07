@@ -7,10 +7,9 @@
  *                   learner's browser
  *   record_session  writes a completed session and its responses
  *
- * Every request is gated on the class passphrase first (checkPassphrase). That
- * check lives HERE and not in the browser on purpose: a client-side check is
- * decorative, because anything the client compares a learner can read in
- * DevTools along with whatever key it was guarding.
+ * There is no passphrase gate: anyone with the URL can call it. The Anthropic
+ * key still never leaves this function, but what bounds spend is the per-IP
+ * rate limit below plus a spend limit on the key in the Anthropic console.
  *
  * It also holds the service-role key, so it is the ONLY path through which
  * learner data reaches the database (the student tables have no anon-role
@@ -19,25 +18,17 @@
  *
  * Deploy:
  *   supabase functions deploy session --no-verify-jwt
- *   supabase secrets set ANTHROPIC_API_KEY=sk-ant-... POD_PASSPHRASE=ETEC523
+ *   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
  *
  * --no-verify-jwt is required because learners are never authenticated and
  * hold no JWT. With verification on, the platform rejects every request before
- * this file runs and the passphrase gate never gets a say — which presents as
- * "the passphrase is broken". supabase/config.toml sets the same flag for
- * git-based deploys.
+ * this file runs. supabase/config.toml sets the same flag for git-based
+ * deploys.
  */
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
-/**
- * The class passphrase (e.g. ETEC523). A SERVER-SIDE SECRET — this is the
- * whole point of the gate. Checking a passphrase in the browser would be
- * decorative: anything the client can compare, a student can read in
- * DevTools, along with whatever key it was protecting.
- */
-const PASSPHRASE = Deno.env.get('POD_PASSPHRASE') ?? '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
@@ -48,7 +39,7 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-headers':
-    'content-type, apikey, x-poducator-class, x-poducator-pass',
+    'content-type, apikey, x-poducator-class',
   'access-control-allow-methods': 'POST, OPTIONS',
 };
 
@@ -60,56 +51,12 @@ function json(body: unknown, status = 200) {
 }
 
 /**
- * Constant-time string comparison.
- *
- * Overkill for a class passphrase, but it is six lines and the alternative
- * leaks length and prefix information through response timing. Cheap to do
- * right, awkward to retrofit.
- */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-/**
- * Gate every request on the class passphrase.
- *
- * Returns null when the caller may proceed, or a Response to return as-is.
- * What this buys and what it does not, stated plainly so nobody over-trusts it:
- *
- *   - It DOES keep the Anthropic key secret. The key never leaves this
- *     function, is never in the repo, and is never in a browser. That part is
- *     complete.
- *   - It does NOT authenticate anyone. A shared passphrase will be shared.
- *     The real bound on a leaked passphrase is a spend limit on the Anthropic
- *     key, which is a console setting rather than code.
- */
-function checkPassphrase(req: Request): Response | null {
-  if (!PASSPHRASE) {
-    return json(
-      { error: { code: 'not_configured', message: 'Server passphrase not configured.' } },
-      500
-    );
-  }
-  const supplied = req.headers.get('x-poducator-pass') ?? '';
-  if (!safeEqual(supplied, PASSPHRASE)) {
-    return json(
-      { error: { code: 'bad_passphrase', message: 'That passphrase is not right.' } },
-      401
-    );
-  }
-  return null;
-}
-
-/**
  * Best-effort per-IP rate limit.
  *
  * Deliberately modest about what it is: Edge instances are ephemeral and there
  * may be several, so this Map is not a quota — it is a speed bump against one
- * script hammering the endpoint after the passphrase leaks. Durable limiting
- * would need the database, which this gate deliberately does not depend on.
+ * script hammering the endpoint. Durable limiting would need the database,
+ * which this limiter deliberately does not depend on.
  */
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 30;
@@ -242,14 +189,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: { message: 'POST only.' } }, 405);
 
-  // Gate BEFORE parsing or dispatching. record_session is gated too: an
-  // ungated write path would let anyone stuff a teacher's dashboard with junk
-  // sessions, which is the same door left open in a different wall.
+  // Rate-limit BEFORE parsing or dispatching.
   const limited = rateLimited(req);
   if (limited) return limited;
-
-  const denied = checkPassphrase(req);
-  if (denied) return denied;
 
   let body: Record<string, any>;
   try {
