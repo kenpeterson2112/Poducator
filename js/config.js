@@ -285,9 +285,35 @@ export function usingProxy() {
 }
 
 /**
+ * Premium audio: real recorded-quality voices from OpenAI's speech endpoint,
+ * fetched one transcript line at a time through the Edge Function's `speak`
+ * action. Only live lessons running through the proxy use it — a pasted-key
+ * dev run and a saved-lesson replay keep the browser's built-in speech, the
+ * latter so demo mode stays free of network calls.
+ *
+ *   prefetchAhead   lines fetched ahead of the one playing, so the gap
+ *                   between lines is playback, not a network round trip
+ *   fetchTimeoutMs  a line slower than this is spoken by the browser instead
+ *   maxFailures     consecutive failures before giving up on premium audio
+ *                   for the rest of the page — one blip shouldn't cost the
+ *                   lesson its voices, but a dead endpoint shouldn't make
+ *                   every line wait out a timeout either
+ *   cacheLines      decoded clips kept in memory, so rewind, restart and
+ *                   chapter review replay audio already paid for
+ */
+export const PREMIUM_AUDIO = Object.freeze({
+  prefetchAhead: 2,
+  fetchTimeoutMs: 15000,
+  maxFailures: 3,
+  cacheLines: 300,
+});
+
+/**
  * The two hosts (spec §5). Host B is the load-bearing one: a learner-companion
  * who voices the confusion the student won't ask aloud. `voiceHint` is used by
- * tts.js when picking/tuning a Web Speech voice.
+ * tts.js when picking/tuning a Web Speech voice; `premiumVoice` is the OpenAI
+ * voice and delivery direction used instead whenever premium audio is live
+ * (see PREMIUM_AUDIO and docs/premium-audio.md).
  */
 export const HOSTS = Object.freeze({
   A: {
@@ -297,6 +323,13 @@ export const HOSTS = Object.freeze({
       'Explains clearly and checks for understanding. Warm, never condescending. ' +
       'Never says "as you already know" or "obviously" — that teaches a struggling student to stay quiet.',
     voiceHint: { pitch: 1.0, rate: 1.0 },
+    premiumVoice: {
+      voice: 'marin',
+      instructions:
+        'You are the teacher on a two-host educational podcast for students. Speak warmly and clearly, ' +
+        'at an unhurried conversational pace, like a favourite teacher explaining something at the kitchen table. ' +
+        'Encouraging, never lecturing or condescending. Let questions sound like genuine questions.',
+    },
   },
   B: {
     id: 'B',
@@ -305,6 +338,13 @@ export const HOSTS = Object.freeze({
       'Voices the confusion a student probably has but would not ask aloud. ' +
       'Sometimes gets it partly wrong and self-corrects. Models productive struggle, so being confused feels normal.',
     voiceHint: { pitch: 1.15, rate: 1.03 },
+    premiumVoice: {
+      voice: 'cedar',
+      instructions:
+        'You are the learner co-host on a two-host educational podcast, figuring the topic out alongside the listener. ' +
+        'Curious, lively and natural. Sound genuinely puzzled when asking something, and genuinely pleased ' +
+        'when an idea clicks. Relaxed and friendly, never performed.',
+    },
   },
 });
 

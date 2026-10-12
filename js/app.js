@@ -112,6 +112,9 @@ function main() {
   }
   ui.setActiveSpeedPill(rateMultiplier);
   tts.initVoices();
+  // Every tap is a chance to unlock premium audio playback (tts.unlockAudio);
+  // capture phase, so it runs inside the gesture before any handler awaits.
+  document.addEventListener('click', tts.unlockAudio, true);
   store.flush(); // drain anything stranded by a previous session's bad wifi
   reportPending();
 
@@ -213,6 +216,7 @@ async function onStart() {
     localStorage.setItem(API_KEY_STORAGE_KEY, apiKey);
     credentials = { apiKey };
   }
+  tts.usePremiumAudio(credentials);
 
   const objectives = curriculum.toObjectives(lesson.codes);
   const { diagnostic, final } = curriculum.sampleItems(lesson.codes);
@@ -417,9 +421,16 @@ async function teach() {
   let index = 0;
 
   ui.setChapterHeader(run.lessonTitle, 'Preparing the first chapter…', '');
-  let pending = claude.chapter(
-    chapterInput(run.chapterQueue[0], 0, plannedTotal),
-    run.credentials
+  // Start fetching a chapter's opening lines the moment its script lands —
+  // for chapter 1 that is while the ready gate waits on Start, for later ones
+  // while the previous chapter is still playing. No-op without premium audio.
+  const warm = (generating) =>
+    generating.then((generated) => {
+      tts.prefetch(generated?.lines ?? []);
+      return generated;
+    });
+  let pending = warm(
+    claude.chapter(chapterInput(run.chapterQueue[0], 0, plannedTotal), run.credentials)
   );
 
   // The one deliberately modal moment in the app: nothing exists yet for the
@@ -504,9 +515,11 @@ async function teach() {
         run.chapterQueue[0].objectiveShort,
         run.chapterQueue[0].objectiveId
       );
-      pending = claude.chapter(
-        chapterInput(run.chapterQueue[0], index, Math.max(plannedTotal, index + 1)),
-        run.credentials
+      pending = warm(
+        claude.chapter(
+          chapterInput(run.chapterQueue[0], index, Math.max(plannedTotal, index + 1)),
+          run.credentials
+        )
       );
     } else if (!isLast) {
       break;
@@ -807,6 +820,7 @@ async function onStudentStart() {
   } catch (err) {
     return ui.setStudentStatus(err.message, true);
   }
+  tts.usePremiumAudio(credentials);
 
   ui.cancelSourceConfirm();
   const plan = LENGTHS[length] ?? LENGTHS[DEFAULT_LENGTH];
@@ -1033,6 +1047,7 @@ async function onPlaySaved(id) {
  */
 async function replay(session) {
   const objectives = session.objectives ?? [];
+  tts.usePremiumAudio(null); // demo mode makes no network calls, voices included
 
   state = {
     runId: ++runCounter,

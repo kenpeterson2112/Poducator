@@ -141,7 +141,7 @@ Poducator/
 │   ├── claude.js                 # generation: chapter call (the only one)
 │   ├── assessment.js             # item model, scoring, pre/post delta  (pure)
 │   ├── objectives.js             # gap profile, chapter planning        (pure)
-│   ├── tts.js                    # browser TTS, ported from NowPod
+│   ├── tts.js                    # host voices: OpenAI premium audio, or browser TTS
 │   ├── ui.js                     # DOM only
 │   ├── store.js                  # IndexedDB + offline outbox
 │   └── app.js                    # state machine
@@ -185,7 +185,8 @@ than a quota.
 1. **Create a Supabase project** (free tier is enough).
 2. **Set the secrets** — Dashboard → Edge Functions → Secrets, or
    `supabase secrets set ANTHROPIC_API_KEY=...`. See
-   [`.env.example`](.env.example) for what's needed. Never commit values.
+   [`.env.example`](.env.example) for what's needed. Never commit values. Optionally also set
+   `OPENAI_API_KEY` for premium voices — see [`docs/premium-audio.md`](docs/premium-audio.md).
 3. **Deploy the function:** `supabase functions deploy session --no-verify-jwt`, or let the GitHub
    integration do it — [`supabase/config.toml`](supabase/config.toml) already sets
    `verify_jwt = false` for that path. Either way this flag is required: learners hold no JWT, so
@@ -275,9 +276,9 @@ you want to demo the reteach branch, put a reteach chapter in the file.
 A hand-authored file needs very little — a topic and one chapter with dialogue lines. Everything
 else is optional and gets filled in on load, so these are quick to write by hand.
 
-**What a saved podcast is not: audio.** Browser TTS synthesizes speech live and never produces a
-file. A saved lesson is the transcript, and replaying re-runs TTS over it — which costs nothing.
-Downloadable audio arrives with the ElevenLabs swap, not before.
+**What a saved podcast is not: audio.** A saved lesson is the transcript, and replaying re-runs
+browser TTS over it — which costs nothing and makes no network calls, even when the live lesson
+used premium voices ([`docs/premium-audio.md`](docs/premium-audio.md)).
 
 ### Running it locally
 
@@ -320,10 +321,10 @@ need a new adapter implementing the same interface as `js/sources/mediawiki.js`.
   a search rather than to nothing, but the list deserves verification.
 - Wiki depth is capped, and the D1 expectations — evaluating social and economic factors — map onto
   reference articles worse than the D2 ones do. The `brief` field carries more weight there.
-- Browser TTS quality varies by OS and browser, and — the bigger limitation — it stops when a
-  phone locks or the app backgrounds, since it isn't a real `<audio>` element and gets no lock-screen
-  exemption from the OS. A real-audio fix was scoped and costed, then deliberately deferred for this
-  project's size: see [`docs/background-audio.md`](docs/background-audio.md).
+- Browser TTS quality varies by OS and browser. With `OPENAI_API_KEY` set, live lessons use
+  OpenAI voices instead ([`docs/premium-audio.md`](docs/premium-audio.md)). Either way, audio may
+  still stop when a phone locks or the app backgrounds: the Media Session wiring that earns the
+  lock-screen exemption isn't built yet — see [`docs/background-audio.md`](docs/background-audio.md).
 - **3 items is a small instrument**, thinner than the 4–6 this started with. The growth delta is a
   **signal, not a measurement** — the app says so on the result screen and should keep saying so.
   Growing Success wants triangulation across observations, conversations and products; this is one
