@@ -1,5 +1,10 @@
 # Background/lock-screen playback — considered, deferred
 
+> **Update:** the real-audio half of this plan is now built — see
+> [`premium-audio.md`](premium-audio.md). Live lessons can play OpenAI voices through an
+> `<audio>` element. The Media Session half (step 3 below), which is what actually earns the
+> lock-screen exemption, is still not built.
+
 **Status:** Not built. Deliberately. This is a decision record, not a bug report — the
 next person to ask "why doesn't this keep playing when I lock my phone" should land
 here, not re-derive the answer from scratch.

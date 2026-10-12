@@ -1,15 +1,17 @@
 /**
  * supabase/functions/session — the server seam (spec §7, §8).
  *
- * It does exactly two things, and deliberately nothing else:
+ * It does exactly three things, and deliberately nothing else:
  *
  *   generate        proxies a Claude call so the API key never reaches a
  *                   learner's browser
+ *   speak           proxies one OpenAI text-to-speech call — one transcript
+ *                   line in, MP3 bytes out (docs/premium-audio.md)
  *   record_session  writes a completed session and its responses
  *
- * There is no passphrase gate: anyone with the URL can call it. The Anthropic
- * key still never leaves this function, but what bounds spend is the per-IP
- * rate limit below plus a spend limit on the key in the Anthropic console.
+ * There is no passphrase gate: anyone with the URL can call it. Neither API
+ * key ever leaves this function, but what bounds spend is the per-IP rate
+ * limits below plus a spend limit on each key in its provider's console.
  *
  * It also holds the service-role key, so it is the ONLY path through which
  * learner data reaches the database (the student tables have no anon-role
@@ -19,6 +21,11 @@
  * Deploy:
  *   supabase functions deploy session --no-verify-jwt
  *   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+ *   supabase secrets set OPENAI_API_KEY=sk-...        # optional: premium voices
+ *
+ * Without OPENAI_API_KEY, `speak` answers 501 and the client falls back to the
+ * browser's built-in speech for the rest of the page's life — so premium audio
+ * is switched on and off entirely by whether that secret exists.
  *
  * --no-verify-jwt is required because learners are never authenticated and
  * hold no JWT. With verification on, the platform rejects every request before
@@ -29,6 +36,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
+const OPENAI_KEY = Deno.env.get('OPENAI_API_KEY') ?? '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
@@ -57,22 +65,30 @@ function json(body: unknown, status = 200) {
  * may be several, so this Map is not a quota — it is a speed bump against one
  * script hammering the endpoint. Durable limiting would need the database,
  * which this limiter deliberately does not depend on.
+ *
+ * Two buckets, because the two kinds of call arrive at very different rates.
+ * A lesson makes one Claude call per chapter, but one `speak` call per
+ * transcript LINE — twenty-odd per chapter, a few seconds apart, with the next
+ * couple prefetched. And a classroom usually shares one public IP behind the
+ * school's NAT, so `speak` needs headroom for a room of learners, not one.
  */
 const WINDOW_MS = 60_000;
-const MAX_PER_WINDOW = 30;
+const MAX_PER_WINDOW = { default: 30, speak: 300 } as const;
+type Bucket = keyof typeof MAX_PER_WINDOW;
 const hits = new Map<string, { count: number; resetAt: number }>();
 
-function rateLimited(req: Request): Response | null {
+function rateLimited(req: Request, bucket: Bucket): Response | null {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const key = `${bucket}:${ip}`;
   const now = Date.now();
-  const entry = hits.get(ip);
+  const entry = hits.get(key);
 
   if (!entry || now > entry.resetAt) {
-    hits.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+    hits.set(key, { count: 1, resetAt: now + WINDOW_MS });
     return null;
   }
   entry.count += 1;
-  if (entry.count > MAX_PER_WINDOW) {
+  if (entry.count > MAX_PER_WINDOW[bucket]) {
     return json(
       { error: { code: 'rate_limited', message: 'Too many requests — wait a minute.' } },
       429
@@ -125,6 +141,95 @@ async function generate(req: Request, body: Record<string, unknown>) {
   return new Response(await upstream.text(), {
     status: upstream.status,
     headers: { 'content-type': 'application/json', ...CORS },
+  });
+}
+
+/**
+ * Text-to-speech model. Overridable by secret so a newer snapshot can be tried
+ * without a redeploy of code; the CLIENT never chooses it, so nobody holding
+ * the URL can point this at a pricier model.
+ */
+const TTS_MODEL = Deno.env.get('OPENAI_TTS_MODEL') || 'gpt-4o-mini-tts';
+
+/** The voices the speech endpoint offers. Anything else is rejected rather
+ * than forwarded, so a bad value fails here with a clear message. */
+const TTS_VOICES = new Set([
+  'alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx',
+  'sage', 'shimmer', 'verse', 'marin', 'cedar',
+]);
+
+/** One transcript line is a sentence or three; the API's own ceiling is 4096.
+ * A tighter cap keeps this endpoint useless as a general-purpose free TTS. */
+const MAX_SPEAK_CHARS = 1500;
+const MAX_INSTRUCTION_CHARS = 600;
+
+/**
+ * Speak one transcript line through OpenAI's speech endpoint.
+ *
+ * Unlike `generate`, this does NOT pass the client's body through: it builds
+ * the upstream request field by field from validated values, the same
+ * allowlisting stance as recordSession below. The model is fixed here.
+ */
+async function speak(req: Request, body: Record<string, unknown>) {
+  if (!OPENAI_KEY) {
+    // A distinct code the client recognizes as "premium audio isn't set up
+    // here" — it stops asking for the rest of the session instead of paying a
+    // failed round trip on every line.
+    return json(
+      { error: { code: 'tts_unconfigured', message: 'Premium audio is not configured.' } },
+      501
+    );
+  }
+
+  const classCode = req.headers.get('x-poducator-class');
+  if (classCode && !(await validateClass(classCode))) {
+    return json({ error: { message: 'Unknown class code.' } }, 403);
+  }
+
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text || text.length > MAX_SPEAK_CHARS) {
+    return json({ error: { message: `Text must be 1-${MAX_SPEAK_CHARS} characters.` } }, 400);
+  }
+  const voice = typeof body.voice === 'string' ? body.voice : '';
+  if (!TTS_VOICES.has(voice)) {
+    return json({ error: { message: 'Unknown voice.' } }, 400);
+  }
+  const instructions =
+    typeof body.instructions === 'string'
+      ? body.instructions.slice(0, MAX_INSTRUCTION_CHARS)
+      : undefined;
+
+  const upstream = await fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${OPENAI_KEY}`,
+    },
+    body: JSON.stringify({
+      model: TTS_MODEL,
+      input: text,
+      voice,
+      instructions,
+      // MP3 is the one format every browser's <audio> plays, iOS included.
+      response_format: 'mp3',
+    }),
+  });
+
+  if (!upstream.ok) {
+    let message = `Speech failed (${upstream.status}).`;
+    try {
+      message = (await upstream.json())?.error?.message ?? message;
+    } catch {
+      /* keep the status-code message */
+    }
+    return json({ error: { code: 'tts_failed', message } }, upstream.status);
+  }
+
+  // Streamed straight through: the first bytes reach the browser while the
+  // rest are still being synthesized.
+  return new Response(upstream.body, {
+    status: 200,
+    headers: { 'content-type': 'audio/mpeg', ...CORS },
   });
 }
 
@@ -189,18 +294,20 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: { message: 'POST only.' } }, 405);
 
-  // Rate-limit BEFORE parsing or dispatching.
-  const limited = rateLimited(req);
-  if (limited) return limited;
-
   let body: Record<string, any>;
   try {
     body = await req.json();
   } catch {
-    return json({ error: { message: 'Invalid JSON body.' } }, 400);
+    return rateLimited(req, 'default') ?? json({ error: { message: 'Invalid JSON body.' } }, 400);
   }
 
+  // Rate-limit BEFORE dispatching. The action picks the bucket, so this runs
+  // just after the (cheap) parse rather than before it.
+  const limited = rateLimited(req, body.action === 'speak' ? 'speak' : 'default');
+  if (limited) return limited;
+
   if (body.action === 'record_session') return recordSession(body);
+  if (body.action === 'speak') return speak(req, body);
 
   // Anything else is a Messages API passthrough.
   const { action: _ignored, ...messagesBody } = body;

@@ -16,7 +16,7 @@
  * Bump CACHE_VERSION on any shell change — old caches are cleared on activate.
  */
 
-const CACHE_VERSION = 'poducator-v5';
+const CACHE_VERSION = 'poducator-v6';
 
 /**
  * A shell request that always checks with the server first.
