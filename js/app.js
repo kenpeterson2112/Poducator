@@ -91,6 +91,7 @@ function main() {
     onRewindLines,
     onForwardLines,
     onSetSpeed,
+    onTogglePause,
     onJumpToChapter,
     onSelectionChange: refreshLessonLink,
     onPreviewLesson,
@@ -115,6 +116,11 @@ function main() {
   // Every tap is a chance to unlock premium audio playback (tts.unlockAudio);
   // capture phase, so it runs inside the gesture before any handler awaits.
   document.addEventListener('click', tts.unlockAudio, true);
+  setupMediaSession();
+  tts.onPauseChange((paused) => {
+    ui.setPaused(paused);
+    setPlaybackState(paused ? 'paused' : 'playing');
+  });
   store.flush(); // drain anything stranded by a previous session's bad wifi
   reportPending();
 
@@ -411,6 +417,21 @@ function chapterInput(chapter, index, total) {
  * (objectives.applyCheckpoint), so the plan adapts as it runs.
  */
 async function teach() {
+  // While chapters are playing, the lesson counts as live for lock-screen
+  // purposes (tts.js keeps a locked phone's page awake between clips). The
+  // release only takes effect if this is still the newest lesson.
+  const run = state;
+  const release = tts.beginLesson();
+  setPlaybackState('playing');
+  try {
+    return await teachChapters();
+  } finally {
+    release();
+    if (state === run) setPlaybackState('none'); // a newer run owns it otherwise
+  }
+}
+
+async function teachChapters() {
   const run = state;
   ui.clearTranscript();
   ui.showView('player');
@@ -1351,6 +1372,46 @@ function onJumpToChapter(i) {
     });
 }
 
+/** Pause/Play — in the app, on the lock screen, or from headphones. tts.js
+ * owns the state and reports every change back through onPauseChange. */
+function onTogglePause(wantPaused = !tts.isPaused()) {
+  if (!state) return;
+  if (wantPaused) tts.pause();
+  else tts.resume();
+}
+
+/**
+ * Lock-screen and headphone controls (Media Session API), mapped onto the
+ * same handlers as the on-screen buttons — no second set of behaviours. The
+ * OS shows them only while our <audio> element is playing, i.e. premium audio.
+ */
+function setupMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  const handlers = {
+    play: () => onTogglePause(false),
+    pause: () => onTogglePause(true),
+    previoustrack: onPrevious,
+    nexttrack: onSkip,
+    seekbackward: onRewindLines,
+    seekforward: onForwardLines,
+  };
+  for (const [action, handler] of Object.entries(handlers)) {
+    try {
+      navigator.mediaSession.setActionHandler(action, () => handler());
+    } catch {
+      /* this browser doesn't offer that action — the rest still work */
+    }
+  }
+}
+
+function setPlaybackState(value) {
+  try {
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = value;
+  } catch {
+    /* older browsers lack playbackState; the OS infers it from the element */
+  }
+}
+
 /**
  * Restart → invalidate the run so stale async work can't write into it.
  * `silent` is used by the router, which is about to pick its own view.
@@ -1360,6 +1421,8 @@ function onRestart(opts = {}) {
   state = null;
   checkpointResolve = null;
   tts.stop();
+  tts.endLesson(); // also clears a pause, so the next lesson starts playing
+  setPlaybackState('none');
   ui.hideCheckpoint();
   ui.cancelReadyGate(); // a dangling "waiting for Start" promise must not outlive its run
   ui.cancelWrapUpBar(); // same for a dangling "quiz or skip" choice

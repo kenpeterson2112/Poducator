@@ -1,11 +1,12 @@
 # Background/lock-screen playback — considered, deferred
 
-> **Update:** the real-audio half of this plan is now built — see
-> [`premium-audio.md`](premium-audio.md). Live lessons can play OpenAI voices through an
-> `<audio>` element. The Media Session half (step 3 below), which is what actually earns the
-> lock-screen exemption, is still not built.
+> **Update — built.** Everything below has since been done, for live lessons with premium audio
+> ([`premium-audio.md`](premium-audio.md)): real `<audio>`, Media Session lock-screen controls,
+> and two things this plan didn't foresee — see *As built* at the end. Browser-speech lessons
+> (no OpenAI key, pasted-key dev runs, saved-lesson replays) still stop when the phone locks.
+> The original decision record is kept as written.
 
-**Status:** Not built. Deliberately. This is a decision record, not a bug report — the
+**Status (original):** Not built. Deliberately. This is a decision record, not a bug report — the
 next person to ask "why doesn't this keep playing when I lock my phone" should land
 here, not re-derive the answer from scratch.
 
@@ -111,3 +112,26 @@ being a bigger project than it needs to be. Nothing about the current architectu
 needs to change in anticipation of this — it was designed so this stays a clean,
 addable seam rather than a rewrite, precisely so the decision to defer it wouldn't
 foreclose doing it later.
+
+## As built
+
+- **Media Session** — `app.js:setupMediaSession()` maps lock-screen and headphone controls onto
+  the existing handlers: play/pause → the new Pause button's handler, previous/next track →
+  `onPrevious`/`onSkip`, seek back/forward → `onRewindLines`/`onForwardLines`. Now-playing
+  metadata mirrors the chapter header (`ui.setChapterHeader`).
+- **Pause** didn't exist before, and a lock screen without one is broken, so it does now — in the
+  player and on the lock screen, as one state owned by `tts.js`. A premium clip pauses mid-word; a
+  browser-speech line restarts on resume. An outside pause (a call, headphones unplugged) pauses
+  the lesson too, instead of the line watchdog marching on through audio nobody hears.
+- **The gaps were the real problem.** Lessons play one clip per line, plus silence while the next
+  chapter is written. A locked phone suspends a silent page, so while a lesson is live the same
+  `<audio>` element loops one second of silence through every gap (the "bridge") until the next
+  real clip takes it over. The page never goes quiet, so it never gets suspended.
+- **Screen off → fetch the whole chapter ahead**, so each line plays straight from cache the
+  moment the last one ends. With the screen on it still fetches only 3 lines ahead.
+- **Checks need the screen** — see `docs/spec.md` §6: with the screen off they're heard but not
+  asked, and recorded as `not_asked`.
+
+Verified in desktop Chromium with mocked audio. **Not yet verified on a real locked iPhone or
+Android phone** — iOS especially decides for itself what a background page may do, so that test
+is the one that settles whether this holds.

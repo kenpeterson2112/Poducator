@@ -321,10 +321,11 @@ need a new adapter implementing the same interface as `js/sources/mediawiki.js`.
   a search rather than to nothing, but the list deserves verification.
 - Wiki depth is capped, and the D1 expectations — evaluating social and economic factors — map onto
   reference articles worse than the D2 ones do. The `brief` field carries more weight there.
-- Browser TTS quality varies by OS and browser. With `OPENAI_API_KEY` set, live lessons use
-  OpenAI voices instead ([`docs/premium-audio.md`](docs/premium-audio.md)). Either way, audio may
-  still stop when a phone locks or the app backgrounds: the Media Session wiring that earns the
-  lock-screen exemption isn't built yet — see [`docs/background-audio.md`](docs/background-audio.md).
+- Browser TTS quality varies by OS and browser, and it stops when a phone locks. With
+  `OPENAI_API_KEY` set, live lessons use OpenAI voices instead
+  ([`docs/premium-audio.md`](docs/premium-audio.md)) and keep playing on a locked screen, with
+  lock-screen controls ([`docs/background-audio.md`](docs/background-audio.md)) — not yet
+  verified on a real phone.
 - **3 items is a small instrument**, thinner than the 4–6 this started with. The growth delta is a
   **signal, not a measurement** — the app says so on the result screen and should keep saying so.
   Growing Success wants triangulation across observations, conversations and products; this is one
