@@ -174,6 +174,12 @@ genuinely needs an answer — that's the entire point. The resolution keeps NowP
 - `no_response` is recorded as its own outcome, distinct from wrong. It usually means the student
   disengaged or got lost — which is different information than a wrong answer, and a teacher
   should see the difference.
+- **Screen off → the check isn't asked.** If the screen is locked or another app is in front when
+  Host A asks, the panel waits; if the screen comes back during the riff, it opens then. If not,
+  the chapter's outcome is `not_asked`: no response row, no reteach, and Host A still answers
+  aloud, since the question was heard. A listener with the phone in their pocket was never offered
+  a button, so treating that as `no_response` would read as drifting and queue a reteach they
+  didn't need.
 
 **The diagnostic and wrap-up quiz DO block.** They're bracketing assessments, not interludes, and
 no audio is playing during either.
