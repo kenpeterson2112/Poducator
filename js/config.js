@@ -348,9 +348,18 @@ export const HOSTS = Object.freeze({
   },
 });
 
-/** Outcome of a single checkpoint (spec §6). `no_response` is its own signal. */
+/**
+ * Outcome of a single checkpoint (spec §6). `no_response` is its own signal.
+ *
+ * `not_asked` is different again: the screen was off (locked, or another app
+ * in front) for the whole answer window, so the question was only ever heard
+ * in the dialogue, never put in front of the learner. That is no evidence
+ * either way — it records no response, triggers no reteach, and tells the
+ * teacher nothing about drifting, because nobody was offered a button to press.
+ */
 export const CHECKPOINT_OUTCOME = Object.freeze({
   CORRECT: 'correct',
   INCORRECT: 'incorrect',
   NO_RESPONSE: 'no_response',
+  NOT_ASKED: 'not_asked',
 });

@@ -556,8 +556,27 @@ async function playChapter(generated, planned) {
   // line doesn't reopen it — rewinding is for re-hearing dialogue, not
   // re-taking the quiz. Only a genuine restart (below) resets this.
   let checkpointShown = false;
+  // Set when playback reaches the question, whether or not the panel could
+  // open then. Reached-but-not-shown means the screen was off: the panel waits
+  // for the screen to come back, and opens then if the riff is still going.
+  let checkpointReached = false;
+  let playbackEnded = false;
   let answer = assessment.NO_ANSWER;
   let askedAt = 0;
+
+  const openCheckpoint = () => {
+    if (checkpointShown || playbackEnded || !isCurrentRun(run)) return;
+    checkpointShown = true;
+    askedAt = Date.now();
+    ui.showCheckpoint(checkpoint).then((picked) => checkpointResolve?.(picked));
+  };
+  // A locked phone (or another app in front) can't answer. Asking anyway
+  // would turn every screen-off listen into a string of `no_response`s — and
+  // each one a full-length reteach — for a learner who never saw a question.
+  const onVisibilityChange = () => {
+    if (checkpointReached && document.visibilityState === 'visible') openCheckpoint();
+  };
+  if (checkpoint) document.addEventListener('visibilitychange', onVisibilityChange);
 
   run.currentLines = lines;
   run.currentCheckpointAt = checkpointAt;
@@ -588,10 +607,9 @@ async function playChapter(generated, planned) {
           if (!isCurrentRun(run)) return;
           run.currentLineIndex = i;
           ui.highlightLine(i);
-          if (checkpoint && i === checkpointAt && !checkpointShown) {
-            checkpointShown = true;
-            askedAt = Date.now();
-            ui.showCheckpoint(checkpoint).then((picked) => checkpointResolve?.(picked));
+          if (checkpoint && i === checkpointAt && !checkpointReached) {
+            checkpointReached = true;
+            if (document.visibilityState !== 'hidden') openCheckpoint();
           }
         },
         { startIndex: index, rateMultiplier: getRateMultiplier() }
@@ -635,6 +653,12 @@ async function playChapter(generated, planned) {
   const finished = playback.catch((err) => {
     console.warn('Playback failed; continuing without audio.', err);
   });
+  // Registered first, so it runs before the "nobody answered" handler below:
+  // once the riff is over, coming back to the screen must not open a panel.
+  finished.then(() => {
+    playbackEnded = true;
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+  });
 
   if (!checkpoint) {
     await finished;
@@ -666,21 +690,29 @@ async function playChapter(generated, planned) {
     return CHAPTER_RESTART;
   }
 
+  // Reached with the screen off and never shown: not asked, so nothing to
+  // record. A Skip before the question was reached stays `no_response`, as
+  // it always has — that learner had the screen and chose to move on.
+  const notAsked = checkpointReached && !checkpointShown;
   const outcome =
     answer === assessment.NO_ANSWER
-      ? CHECKPOINT_OUTCOME.NO_RESPONSE
+      ? notAsked
+        ? CHECKPOINT_OUTCOME.NOT_ASKED
+        : CHECKPOINT_OUTCOME.NO_RESPONSE
       : answer === checkpoint.correctIndex
         ? CHECKPOINT_OUTCOME.CORRECT
         : CHECKPOINT_OUTCOME.INCORRECT;
 
-  run.responses.push(
-    assessment.recordResponse(checkpoint, answer, {
-      phase: 'checkpoint',
-      latencyMs: askedAt ? Date.now() - askedAt : 0,
-    })
-  );
+  if (outcome !== CHECKPOINT_OUTCOME.NOT_ASKED) {
+    run.responses.push(
+      assessment.recordResponse(checkpoint, answer, {
+        phase: 'checkpoint',
+        latencyMs: askedAt ? Date.now() - askedAt : 0,
+      })
+    );
+  }
 
-  if (outcome !== CHECKPOINT_OUTCOME.NO_RESPONSE) {
+  if (outcome === CHECKPOINT_OUTCOME.CORRECT || outcome === CHECKPOINT_OUTCOME.INCORRECT) {
     ui.flashCheckpointResult(
       outcome === CHECKPOINT_OUTCOME.CORRECT,
       checkpoint.explanation
@@ -693,8 +725,11 @@ async function playChapter(generated, planned) {
 
   // Nobody answered — Host A reveals it out loud rather than letting the
   // question evaporate. This is what keeps an ignored check from feeling like
-  // the show forgot it asked.
-  if (outcome === CHECKPOINT_OUTCOME.NO_RESPONSE && checkpoint.spokenAnswer) {
+  // the show forgot it asked. A screen-off listener heard the question too, so
+  // they get the answer the same way.
+  const unanswered =
+    outcome === CHECKPOINT_OUTCOME.NO_RESPONSE || outcome === CHECKPOINT_OUTCOME.NOT_ASKED;
+  if (unanswered && checkpoint.spokenAnswer) {
     const line = { speaker: 'A', text: checkpoint.spokenAnswer };
     ui.appendLine(line);
     await tts.speakOne(line, { rateMultiplier: getRateMultiplier() });

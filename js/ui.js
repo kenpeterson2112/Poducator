@@ -1040,7 +1040,9 @@ export function setResultMode(mode) {
  */
 export function renderStudentWrapUp(objectives, chapters) {
   const byId = new Map(objectives.map((o) => [o.id, o]));
-  const missed = chapters.filter((c) => c.outcome !== 'correct');
+  // A check that was never offered (screen off — see config.js NOT_ASKED)
+  // says nothing about the idea, so it isn't counted as one to look at again.
+  const missed = chapters.filter((c) => c.outcome !== 'correct' && c.outcome !== 'not_asked');
 
   els.resultSummary.textContent =
     missed.length === 0
@@ -1065,7 +1067,9 @@ export function renderStudentWrapUp(objectives, chapters) {
           ? 'The check on this one landed.'
           : chapter.outcome === 'no_response'
             ? 'You skipped the check on this one.'
-            : 'Worth another look.';
+            : chapter.outcome === 'not_asked'
+              ? 'No check on this one — the screen was off.'
+              : 'Worth another look.';
 
       li.append(head, label);
       return li;
