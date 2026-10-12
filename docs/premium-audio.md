@@ -58,10 +58,8 @@ key, that is what actually bounds spend, since the endpoint has no access gate.
 
 ## Not in this change
 
-- **Lock-screen / background playback.** Real `<audio>` is the prerequisite, and it's now there,
-  but the Media Session API wiring (metadata plus play/pause/previous/next handlers mapped to the
-  existing player controls) is not. Without it, mobile OSes may still suspend the tab between lines.
-  That is the natural next step — see [`background-audio.md`](background-audio.md).
+- **Lock-screen / background playback** — since built on top of this; see *As built* in
+  [`background-audio.md`](background-audio.md).
 - **Downloadable audio.** Clips live only in memory; a saved lesson is still the transcript.
 - **Other providers.** The client sends `{text, voice, instructions}` and gets MP3 back. Trying
   ElevenLabs or Google later means a different upstream call inside `speak` and new voice names

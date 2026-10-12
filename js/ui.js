@@ -79,6 +79,7 @@ export function init() {
   els.prevBtn = byId('prev-btn');
   els.rewindBtn = byId('rewind-btn');
   els.forwardBtn = byId('forward-btn');
+  els.pauseBtn = byId('pause-btn');
   els.speedPills = Array.from(document.querySelectorAll('.speed-pill'));
 
   els.checkpointPanel = byId('checkpoint-panel');
@@ -406,6 +407,35 @@ export function setChapterHeader(lessonTitle, progress, objectiveText, code) {
   els.topicTitle.textContent = lessonTitle;
   els.chapterProgress.textContent = progress;
   els.objectiveNow.textContent = code ? `${code} · ${objectiveText}` : (objectiveText ?? '');
+  setNowPlaying(lessonTitle, objectiveText || progress);
+}
+
+/**
+ * What the lock screen and notification shade show. Mirrors the chapter
+ * header, so whatever the player says is playing, the lock screen says too.
+ */
+function setNowPlaying(lessonTitle, chapterText) {
+  if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: chapterText || lessonTitle,
+      artist: 'Poducator',
+      album: lessonTitle,
+      artwork: [
+        { src: new URL('icons/icon-192.png', location.href).href, sizes: '192x192', type: 'image/png' },
+        { src: new URL('icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' },
+      ],
+    });
+  } catch {
+    /* lock-screen metadata is a nicety; never let it break the player */
+  }
+}
+
+/** Flip the Pause/Play button to match the lesson's state. */
+export function setPaused(paused) {
+  if (!els.pauseBtn) return;
+  els.pauseBtn.textContent = paused ? 'Play' : 'Pause';
+  els.pauseBtn.setAttribute('aria-pressed', String(paused));
 }
 
 /**
@@ -1124,6 +1154,7 @@ export function bindHandlers(handlers) {
   els.prevBtn?.addEventListener('click', () => handlers.onPrevious?.());
   els.rewindBtn?.addEventListener('click', () => handlers.onRewindLines?.());
   els.forwardBtn?.addEventListener('click', () => handlers.onForwardLines?.());
+  els.pauseBtn?.addEventListener('click', () => handlers.onTogglePause?.());
   for (const btn of els.speedPills ?? []) {
     btn.addEventListener('click', () => handlers.onSetSpeed?.(Number(btn.dataset.rate)));
   }

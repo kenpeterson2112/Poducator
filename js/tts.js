@@ -26,6 +26,19 @@
  * The one addition over NowPod: speakOne(), used for the spoken checkpoint
  * answer Host A gives when the student doesn't respond (spec §6). That line
  * isn't part of the generated chapter script, so it needs its own entry point.
+ *
+ * Lock-screen playback (docs/background-audio.md) lives here too, for premium
+ * audio only:
+ *
+ * - pause()/resume() hold the lesson in place — a gate every line waits on,
+ *   not a cancellation — so the lock screen's pause button, the in-app one and
+ *   an OS interruption (a call, headphones unplugged) all mean the same thing.
+ * - Between lines and between chapters there would otherwise be silence, and
+ *   a phone suspends a silent page. While a lesson is live the shared <audio>
+ *   element plays a silent loop through those gaps (the "bridge"), so the page
+ *   keeps running until the next real clip takes the element over.
+ * - With the screen off, a chapter's remaining lines are all fetched ahead, so
+ *   each line follows the last straight from cache, with no network wait.
  */
 
 import { HOSTS, PREMIUM_AUDIO } from './config.js';
@@ -35,6 +48,98 @@ const voiceMap = { A: null, B: null };
 
 /** Cancellation token for whatever is currently being spoken. */
 let activeSession = null;
+
+const CANCELLED = Symbol('cancelled');
+
+/* ------------------------------------------------------------------ */
+/* Pause                                                               */
+/* ------------------------------------------------------------------ */
+
+let paused = false;
+/** Bumped on every pause, so a line interrupted by one can tell it was. */
+let pauseEpoch = 0;
+const resumeWaiters = new Set();
+let pauseListener = null;
+/** Pause/resume for the premium clip mid-play, if there is one. */
+let currentClip = null;
+
+/** Called with true/false whenever the lesson pauses or resumes, from any
+ * source — the in-app button, the lock screen, or the OS. */
+export function onPauseChange(fn) {
+  pauseListener = fn;
+}
+
+export function isPaused() {
+  return paused;
+}
+
+/** Hold playback where it is. A premium clip pauses mid-word and resumes from
+ * there; a browser-speech line restarts on resume (speechSynthesis.pause() is
+ * too unreliable across browsers to trust). */
+export function pause() {
+  if (paused) return;
+  paused = true;
+  pauseEpoch += 1;
+  stopBridge();
+  currentClip?.pause();
+  window.speechSynthesis?.cancel();
+  pauseListener?.(true);
+}
+
+export function resume() {
+  if (!paused) return;
+  paused = false;
+  currentClip?.resume();
+  for (const wake of [...resumeWaiters]) wake();
+  pauseListener?.(false);
+}
+
+/** Resolves when not paused, or CANCELLED if the session is stopped first. */
+function whilePaused(session) {
+  if (session?.cancelled) return Promise.resolve(CANCELLED);
+  if (!paused) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = (value) => {
+      resumeWaiters.delete(onResume);
+      session?.cancelHooks.delete(onCancel);
+      resolve(value);
+    };
+    const onResume = () => done(undefined);
+    const onCancel = () => done(CANCELLED);
+    resumeWaiters.add(onResume);
+    session?.cancelHooks.add(onCancel);
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Lesson lifetime                                                     */
+/* ------------------------------------------------------------------ */
+
+let lessonActive = false;
+let lessonToken = 0;
+
+/**
+ * Mark a lesson as live, which is what allows the silent bridge to keep a
+ * locked phone's page running between clips. Returns a release function that
+ * ends it — but only if no newer lesson has begun since, so a torn-down run
+ * finishing late can't switch off the run that replaced it.
+ * @returns {() => void}
+ */
+export function beginLesson() {
+  const token = ++lessonToken;
+  lessonActive = true;
+  return () => {
+    if (token === lessonToken) endLesson();
+  };
+}
+
+/** No lesson playing: drop the bridge and clear any pause. */
+export function endLesson() {
+  lessonToken += 1;
+  lessonActive = false;
+  stopBridge();
+  resume();
+}
 
 /** Wait for getVoices() to populate — it's async in most browsers. */
 function loadVoices() {
@@ -99,20 +204,99 @@ let premiumFailures = 0;
 const clipCache = new Map();
 
 /** One element for every line. Reusing it matters on iOS, where an element
- * that has played once inside a user gesture may keep playing afterwards. */
+ * that has played once inside a user gesture may keep playing afterwards —
+ * and it is that one element the lock screen's controls are attached to. */
 let audioEl = null;
 let audioUnlocked = false;
 
-/** 10ms of silence, played once inside the first user gesture. */
-const SILENT_WAV =
-  'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+/** Our own pause() calls still fire `pause` events; this counts them so the
+ * listener below can tell ours from the OS's. */
+let ignorePauses = 0;
 
 function audioElement() {
   if (!audioEl) {
     audioEl = new Audio();
     audioEl.preload = 'auto';
+    audioEl.addEventListener('pause', () => {
+      if (ignorePauses > 0) {
+        ignorePauses -= 1;
+        return;
+      }
+      if (!audioEl.paused || audioEl.ended) return; // a clip ending also fires `pause`
+      if (!currentClip && !bridging) return;
+      // Not us: a phone call, headphones unplugged, the OS's own media
+      // controls. Hold the lesson here rather than letting the watchdog march
+      // on through lines nobody can hear.
+      pause();
+    });
   }
   return audioEl;
+}
+
+/** Pause the element without it reading as an outside interruption. */
+function quietPause(audio) {
+  if (!audio || audio.paused) return;
+  ignorePauses += 1;
+  audio.pause();
+}
+
+/** One second of silence as a WAV blob URL, built once. Used to unlock audio
+ * inside the first tap and, looped, as the bridge between clips. */
+let silenceUrl = null;
+function silence() {
+  if (!silenceUrl) {
+    const rate = 8000;
+    const buf = new ArrayBuffer(44 + rate);
+    const v = new DataView(buf);
+    const tag = (at, text) => [...text].forEach((c, i) => v.setUint8(at + i, c.charCodeAt(0)));
+    tag(0, 'RIFF');
+    v.setUint32(4, 36 + rate, true);
+    tag(8, 'WAVE');
+    tag(12, 'fmt ');
+    v.setUint32(16, 16, true); // fmt chunk size
+    v.setUint16(20, 1, true); // PCM
+    v.setUint16(22, 1, true); // mono
+    v.setUint32(24, rate, true); // sample rate
+    v.setUint32(28, rate, true); // byte rate
+    v.setUint16(32, 1, true); // block align
+    v.setUint16(34, 8, true); // bits per sample
+    tag(36, 'data');
+    v.setUint32(40, rate, true);
+    new Uint8Array(buf, 44).fill(128); // 8-bit PCM silence is the midpoint
+    silenceUrl = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+  return silenceUrl;
+}
+
+let bridging = false;
+let bridgeToken = 0;
+
+/**
+ * Fill a gap with silent audio so a locked phone keeps the page running. A
+ * no-op unless premium audio is live mid-lesson and not paused. Ended by the
+ * next clip taking the element over, or by stopBridge().
+ */
+function startBridge() {
+  if (bridging || paused || !premium || !lessonActive) return;
+  const audio = audioElement();
+  const token = ++bridgeToken;
+  bridging = true;
+  audio.loop = true;
+  audio.src = silence();
+  audio.play()?.catch(() => {
+    if (token !== bridgeToken) return; // superseded by a clip or another bridge
+    bridging = false;
+    audio.loop = false;
+  });
+  ignorePauses = 0; // any stale pause events now find the element playing
+}
+
+function stopBridge() {
+  if (!bridging) return;
+  bridging = false;
+  bridgeToken += 1;
+  audioEl.loop = false;
+  quietPause(audioEl);
 }
 
 /**
@@ -146,7 +330,7 @@ export function unlockAudio() {
     audioUnlocked = true; // already playing a real line, so already allowed
     return;
   }
-  audio.src = SILENT_WAV;
+  audio.src = silence();
   audio.play()?.then(
     () => {
       audioUnlocked = true;
@@ -160,6 +344,9 @@ export function unlockAudio() {
 function clipKey(line) {
   return `${line.speaker}\u0000${line.text}`;
 }
+
+/** Lines whose clip has finished downloading — playable with no wait. */
+const readyKeys = new Set();
 
 /**
  * Fetch one line's audio. Rejects on a timeout or any non-audio answer; the
@@ -215,6 +402,12 @@ function clip(line) {
   }
 
   const pending = fetchClip(line, premium);
+  pending.then(
+    () => {
+      if (clipCache.get(key) === pending) readyKeys.add(key);
+    },
+    () => {}
+  );
   pending.catch((err) => {
     if (clipCache.get(key) === pending) clipCache.delete(key);
     // Unconfigured is not a blip — no point asking again for anything.
@@ -225,6 +418,7 @@ function clip(line) {
   while (clipCache.size > PREMIUM_AUDIO.cacheLines) {
     const [oldKey, oldClip] = clipCache.entries().next().value;
     clipCache.delete(oldKey);
+    readyKeys.delete(oldKey);
     oldClip.then((url) => URL.revokeObjectURL(url), () => {});
   }
   return pending;
@@ -238,19 +432,24 @@ function disablePremium(reason) {
 }
 
 /**
- * Start fetching clips before they're needed. Only the first few lines —
- * enough that playback, not the network, sets the pace, without paying for a
- * whole chapter a learner may skip. A no-op unless premium audio is live.
+ * Start fetching clips before they're needed. A no-op unless premium audio is
+ * live.
+ *
+ * With the screen on, only the next few lines — enough that playback, not
+ * the network, sets the pace, without paying for a whole chapter a learner
+ * may skip. With the screen off, all of them: nobody is skipping from a
+ * pocket, and a locked phone is exactly where a network wait between lines
+ * can stall the lesson.
  * @param {Array<{speaker: 'A'|'B', text: string}>} lines
  */
 export function prefetch(lines) {
   if (!premium) return;
-  for (const line of lines.slice(0, PREMIUM_AUDIO.prefetchAhead + 1)) {
+  const count =
+    document.visibilityState === 'hidden' ? lines.length : PREMIUM_AUDIO.prefetchAhead + 1;
+  for (const line of lines.slice(0, count)) {
     if (line?.text) clip(line).catch(() => {}); // a failed prefetch is retried when played
   }
 }
-
-const CANCELLED = Symbol('cancelled');
 
 /** Race a promise against the session being stopped, so stop() never waits
  * out a network request before the chapter loop can move on. */
@@ -280,31 +479,53 @@ function playClip(url, opts) {
       settled = true;
       clearTimeout(timer);
       session?.cancelHooks.delete(onCancel);
+      if (currentClip === control) currentClip = null;
       audio.onended = audio.onerror = audio.onloadedmetadata = null;
-      if (!ok) audio.pause(); // the fallback voice must not talk over a half-played clip
+      if (!ok) quietPause(audio); // the fallback voice must not talk over a half-played clip
       resolve(ok);
     };
     const onCancel = () => {
-      audio.pause();
+      quietPause(audio);
       settle(true);
     };
     session?.cancelHooks.add(onCancel);
     if (session?.cancelled) return onCancel();
 
-    audio.onended = () => settle(true);
-    audio.onerror = () => settle(false);
     // Watchdog, in the spirit of the browser engine's pacing timer: if
     // `ended` never arrives, the lesson still moves on. Generous, because a
-    // late `ended` is harmless and an early cut-off is not.
-    audio.onloadedmetadata = () => {
+    // late `ended` is harmless and an early cut-off is not. Disarmed while
+    // paused — a paused clip is supposed to sit there.
+    const armWatchdog = () => {
       clearTimeout(timer);
-      const ms = Number.isFinite(audio.duration)
-        ? (audio.duration / audio.playbackRate) * 1000 + 4000
+      const remaining = audio.duration - audio.currentTime;
+      const ms = Number.isFinite(remaining)
+        ? (remaining / audio.playbackRate) * 1000 + 4000
         : 60000; // some MP3s report no duration up front; still bounded
       timer = setTimeout(() => settle(true), ms);
     };
+    const control = {
+      pause: () => {
+        clearTimeout(timer);
+        quietPause(audio);
+      },
+      resume: () => {
+        audio.play()?.catch(() => {});
+        armWatchdog();
+      },
+    };
+    currentClip = control;
+
+    audio.onended = () => settle(true);
+    audio.onerror = () => settle(false);
+    audio.onloadedmetadata = () => {
+      if (!paused) armWatchdog();
+    };
     timer = setTimeout(() => settle(false), 8000); // never even loaded
 
+    // The clip takes the element over from any bridge that was filling the gap.
+    bridging = false;
+    bridgeToken += 1;
+    audio.loop = false;
     audio.src = url;
     // Loading a new src resets playbackRate to defaultPlaybackRate, so set
     // both. Only the listener's speed applies: each host's delivery is in its
@@ -317,6 +538,7 @@ function playClip(url, opts) {
       // Anything else — usually NotAllowedError, no gesture yet — falls back.
       if (err?.name !== 'AbortError') settle(false);
     });
+    ignorePauses = 0; // any stale pause events now find the element playing
   });
 }
 
@@ -325,8 +547,11 @@ function playClip(url, opts) {
 async function speakPremium(line, opts) {
   const session = opts.session;
   try {
+    // Waiting on the network: keep a locked phone's page awake meanwhile.
+    if (!readyKeys.has(clipKey(line))) startBridge();
     const url = await unlessCancelled(session, clip(line));
     if (url === CANCELLED) return;
+    if ((await whilePaused(session)) === CANCELLED) return; // paused while it downloaded
     if (await playClip(url, opts)) {
       premiumFailures = 0;
       return;
@@ -340,7 +565,7 @@ async function speakPremium(line, opts) {
       disablePremium(`${premiumFailures} failures in a row`);
     }
   }
-  if (!session?.cancelled) await speakBrowser(line, opts);
+  if (!session?.cancelled) await speakBrowserPausable(line, opts);
 }
 
 /* ------------------------------------------------------------------ */
@@ -354,8 +579,20 @@ async function speakPremium(line, opts) {
  * @param {{session?: {cancelled: boolean, cancelHooks: Set<Function>}, rateMultiplier?: number}} [opts]
  * @returns {Promise<void>}
  */
-export function speakLine(line, opts = {}) {
-  return premium ? speakPremium(line, opts) : speakBrowser(line, opts);
+export async function speakLine(line, opts = {}) {
+  if ((await whilePaused(opts.session)) === CANCELLED) return;
+  return premium ? speakPremium(line, opts) : speakBrowserPausable(line, opts);
+}
+
+/** Browser speech, made pausable the only reliable way: pause() cancels the
+ * utterance, and the line is spoken again from the top once resumed. */
+async function speakBrowserPausable(line, opts) {
+  for (;;) {
+    const epoch = pauseEpoch;
+    await speakBrowser(line, opts);
+    if (opts.session?.cancelled || epoch === pauseEpoch) return;
+    if ((await whilePaused(opts.session)) === CANCELLED) return;
+  }
 }
 
 /** The Web Speech API path — see the header for why it's shaped this way. */
@@ -434,11 +671,15 @@ export async function speakChapter(lines, onLineStart, opts = {}) {
   const { startIndex = 0, rateMultiplier = 1 } = opts;
 
   for (let i = startIndex; i < lines.length; i++) {
-    if (session.cancelled) break;
-    prefetch(lines.slice(i + 1)); // the next few download while this one plays
+    if ((await whilePaused(session)) === CANCELLED) break;
+    prefetch(lines.slice(i + 1)); // the next ones download while this one plays
     onLineStart?.(i);
     await speakLine(lines[i], { session, rateMultiplier });
   }
+  // Whatever comes next — a spoken answer, the next chapter being written —
+  // starts after a gap. Bridge it, unless this was a stop() (the caller is
+  // about to play something else straight away).
+  if (!session.cancelled) startBridge();
 }
 
 /**
@@ -452,6 +693,7 @@ export async function speakOne(line, opts = {}) {
   const session = { cancelled: false, cancelHooks: new Set() };
   activeSession = session;
   await speakLine(line, { session, rateMultiplier: opts.rateMultiplier ?? 1 });
+  if (!session.cancelled) startBridge();
 }
 
 /** Stop all speech immediately (skip / restart). */
@@ -460,6 +702,11 @@ export function stop() {
     activeSession.cancelled = true;
     for (const hook of [...activeSession.cancelHooks]) hook();
   }
-  audioEl?.pause();
+  if (audioEl) {
+    bridging = false;
+    bridgeToken += 1;
+    audioEl.loop = false;
+    quietPause(audioEl);
+  }
   window.speechSynthesis?.cancel();
 }
