@@ -33,10 +33,13 @@
  * - pause()/resume() hold the lesson in place — a gate every line waits on,
  *   not a cancellation — so the lock screen's pause button, the in-app one and
  *   an OS interruption (a call, headphones unplugged) all mean the same thing.
- * - Between lines and between chapters there would otherwise be silence, and
- *   a phone suspends a silent page. While a lesson is live the shared <audio>
- *   element plays a silent loop through those gaps (the "bridge"), so the page
- *   keeps running until the next real clip takes the element over.
+ * - A second <audio> element, the "keep-alive", loops a 10-second near-silent
+ *   track for as long as a lesson is live. Each spoken line is a separate
+ *   clip of a few seconds, and Chrome on Android treats anything under five
+ *   seconds as a one-shot sound effect: no media notification, nothing to
+ *   keep the page running once the screen locks. The keep-alive is what makes
+ *   the lesson count as real media, and it plays straight through the gaps
+ *   between lines and while the next chapter is being written.
  * - With the screen off, a chapter's remaining lines are all fetched ahead, so
  *   each line follows the last straight from cache, with no network wait.
  */
@@ -80,7 +83,7 @@ export function pause() {
   if (paused) return;
   paused = true;
   pauseEpoch += 1;
-  stopBridge();
+  stopKeepAlive();
   currentClip?.pause();
   window.speechSynthesis?.cancel();
   pauseListener?.(true);
@@ -89,6 +92,7 @@ export function pause() {
 export function resume() {
   if (!paused) return;
   paused = false;
+  startKeepAlive();
   currentClip?.resume();
   for (const wake of [...resumeWaiters]) wake();
   pauseListener?.(false);
@@ -119,8 +123,8 @@ let lessonActive = false;
 let lessonToken = 0;
 
 /**
- * Mark a lesson as live, which is what allows the silent bridge to keep a
- * locked phone's page running between clips. Returns a release function that
+ * Mark a lesson as live, which is what lets the keep-alive hold a locked
+ * phone's media session open for the whole lesson. Returns a release function that
  * ends it — but only if no newer lesson has begun since, so a torn-down run
  * finishing late can't switch off the run that replaced it.
  * @returns {() => void}
@@ -133,12 +137,12 @@ export function beginLesson() {
   };
 }
 
-/** No lesson playing: drop the bridge and clear any pause. */
+/** No lesson playing: stop the keep-alive and clear any pause. */
 export function endLesson() {
   lessonToken += 1;
   lessonActive = false;
-  stopBridge();
   resume();
+  stopKeepAlive(); // after resume(), which would otherwise restart it
 }
 
 /** Wait for getVoices() to populate — it's async in most browsers. */
@@ -223,7 +227,7 @@ function audioElement() {
         return;
       }
       if (!audioEl.paused || audioEl.ended) return; // a clip ending also fires `pause`
-      if (!currentClip && !bridging) return;
+      if (!currentClip) return;
       // Not us: a phone call, headphones unplugged, the OS's own media
       // controls. Hold the lesson here rather than letting the watchdog march
       // on through lines nobody can hear.
@@ -240,63 +244,80 @@ function quietPause(audio) {
   audio.pause();
 }
 
-/** One second of silence as a WAV blob URL, built once. Used to unlock audio
- * inside the first tap and, looped, as the bridge between clips. */
+/**
+ * A mono 16-bit WAV as a blob URL. `tone` is an optional [hz, amplitude]
+ * sine; without it the samples are pure silence.
+ */
+function wavUrl(seconds, tone) {
+  const rate = 8000;
+  const samples = Math.round(rate * seconds);
+  const buf = new ArrayBuffer(44 + samples * 2);
+  const v = new DataView(buf);
+  const tag = (at, text) => [...text].forEach((c, i) => v.setUint8(at + i, c.charCodeAt(0)));
+  tag(0, 'RIFF');
+  v.setUint32(4, 36 + samples * 2, true);
+  tag(8, 'WAVE');
+  tag(12, 'fmt ');
+  v.setUint32(16, 16, true); // fmt chunk size
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, 1, true); // mono
+  v.setUint32(24, rate, true); // sample rate
+  v.setUint32(28, rate * 2, true); // byte rate
+  v.setUint16(32, 2, true); // block align
+  v.setUint16(34, 16, true); // bits per sample
+  tag(36, 'data');
+  v.setUint32(40, samples * 2, true);
+  if (tone) {
+    const [hz, amplitude] = tone;
+    for (let i = 0; i < samples; i++) {
+      v.setInt16(44 + i * 2, Math.round(amplitude * Math.sin((2 * Math.PI * hz * i) / rate)), true);
+    }
+  }
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+
+/** A short silence, built once, played inside the first tap to unlock audio. */
 let silenceUrl = null;
 function silence() {
-  if (!silenceUrl) {
-    const rate = 8000;
-    const buf = new ArrayBuffer(44 + rate);
-    const v = new DataView(buf);
-    const tag = (at, text) => [...text].forEach((c, i) => v.setUint8(at + i, c.charCodeAt(0)));
-    tag(0, 'RIFF');
-    v.setUint32(4, 36 + rate, true);
-    tag(8, 'WAVE');
-    tag(12, 'fmt ');
-    v.setUint32(16, 16, true); // fmt chunk size
-    v.setUint16(20, 1, true); // PCM
-    v.setUint16(22, 1, true); // mono
-    v.setUint32(24, rate, true); // sample rate
-    v.setUint32(28, rate, true); // byte rate
-    v.setUint16(32, 1, true); // block align
-    v.setUint16(34, 8, true); // bits per sample
-    tag(36, 'data');
-    v.setUint32(40, rate, true);
-    new Uint8Array(buf, 44).fill(128); // 8-bit PCM silence is the midpoint
-    silenceUrl = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
-  }
+  silenceUrl ??= wavUrl(0.25);
   return silenceUrl;
 }
 
-let bridging = false;
-let bridgeToken = 0;
-
 /**
- * Fill a gap with silent audio so a locked phone keeps the page running. A
- * no-op unless premium audio is live mid-lesson and not paused. Ended by the
- * next clip taking the element over, or by stopBridge().
+ * The keep-alive track. Two numbers in it are load-bearing:
+ *
+ *   10 seconds   Chrome treats media under 5 seconds as a one-shot effect
+ *                rather than something worth a media session.
+ *   30 Hz at -60 dBFS
+ *                Chrome also checks whether a tab is actually making sound
+ *                (its cut-off is about -72 dBFS) before deciding it may
+ *                throttle or freeze it, so pure digital silence would defeat
+ *                the point. 30 Hz this quiet is far below the threshold of
+ *                hearing through headphones, and below anything a phone
+ *                speaker can reproduce at all.
  */
-function startBridge() {
-  if (bridging || paused || !premium || !lessonActive) return;
-  const audio = audioElement();
-  const token = ++bridgeToken;
-  bridging = true;
-  audio.loop = true;
-  audio.src = silence();
-  audio.play()?.catch(() => {
-    if (token !== bridgeToken) return; // superseded by a clip or another bridge
-    bridging = false;
-    audio.loop = false;
-  });
-  ignorePauses = 0; // any stale pause events now find the element playing
+let keepAliveEl = null;
+let keepAliveUnlocked = false;
+
+function keepAliveElement() {
+  if (!keepAliveEl) {
+    keepAliveEl = new Audio(wavUrl(10, [30, 33])); // 33 / 32768 ≈ -60 dBFS
+    keepAliveEl.loop = true;
+    keepAliveEl.preload = 'auto';
+  }
+  return keepAliveEl;
 }
 
-function stopBridge() {
-  if (!bridging) return;
-  bridging = false;
-  bridgeToken += 1;
-  audioEl.loop = false;
-  quietPause(audioEl);
+/** Start (or keep) the keep-alive playing — only for a live premium lesson
+ * that isn't paused. Idempotent, so it's safe to call before every line. */
+function startKeepAlive() {
+  if (!premium || !lessonActive || paused) return;
+  const el = keepAliveElement();
+  if (el.paused) el.play()?.catch(() => {});
+}
+
+function stopKeepAlive() {
+  if (keepAliveEl && !keepAliveEl.paused) keepAliveEl.pause();
 }
 
 /**
@@ -324,6 +345,21 @@ export function usePremiumAudio(credentials) {
  * play on its own. Idempotent and cheap; safe to call on every click.
  */
 export function unlockAudio() {
+  // The keep-alive needs its own unlock: iOS grants it per element.
+  if (!keepAliveUnlocked) {
+    const el = keepAliveElement();
+    if (!el.paused) {
+      keepAliveUnlocked = true;
+    } else {
+      el.play()?.then(
+        () => {
+          keepAliveUnlocked = true;
+          if (!(premium && lessonActive && !paused)) el.pause();
+        },
+        () => {}
+      );
+    }
+  }
   if (audioUnlocked) return;
   const audio = audioElement();
   if (!audio.paused) {
@@ -344,9 +380,6 @@ export function unlockAudio() {
 function clipKey(line) {
   return `${line.speaker}\u0000${line.text}`;
 }
-
-/** Lines whose clip has finished downloading — playable with no wait. */
-const readyKeys = new Set();
 
 /**
  * Fetch one line's audio. Rejects on a timeout or any non-audio answer; the
@@ -402,12 +435,6 @@ function clip(line) {
   }
 
   const pending = fetchClip(line, premium);
-  pending.then(
-    () => {
-      if (clipCache.get(key) === pending) readyKeys.add(key);
-    },
-    () => {}
-  );
   pending.catch((err) => {
     if (clipCache.get(key) === pending) clipCache.delete(key);
     // Unconfigured is not a blip — no point asking again for anything.
@@ -418,7 +445,6 @@ function clip(line) {
   while (clipCache.size > PREMIUM_AUDIO.cacheLines) {
     const [oldKey, oldClip] = clipCache.entries().next().value;
     clipCache.delete(oldKey);
-    readyKeys.delete(oldKey);
     oldClip.then((url) => URL.revokeObjectURL(url), () => {});
   }
   return pending;
@@ -522,10 +548,9 @@ function playClip(url, opts) {
     };
     timer = setTimeout(() => settle(false), 8000); // never even loaded
 
-    // The clip takes the element over from any bridge that was filling the gap.
-    bridging = false;
-    bridgeToken += 1;
-    audio.loop = false;
+    // Keep-alive first, clip second: on a browser that lets only one element
+    // play at a time, the clip starting last is the one that wins.
+    startKeepAlive();
     audio.src = url;
     // Loading a new src resets playbackRate to defaultPlaybackRate, so set
     // both. Only the listener's speed applies: each host's delivery is in its
@@ -547,8 +572,6 @@ function playClip(url, opts) {
 async function speakPremium(line, opts) {
   const session = opts.session;
   try {
-    // Waiting on the network: keep a locked phone's page awake meanwhile.
-    if (!readyKeys.has(clipKey(line))) startBridge();
     const url = await unlessCancelled(session, clip(line));
     if (url === CANCELLED) return;
     if ((await whilePaused(session)) === CANCELLED) return; // paused while it downloaded
@@ -676,10 +699,6 @@ export async function speakChapter(lines, onLineStart, opts = {}) {
     onLineStart?.(i);
     await speakLine(lines[i], { session, rateMultiplier });
   }
-  // Whatever comes next — a spoken answer, the next chapter being written —
-  // starts after a gap. Bridge it, unless this was a stop() (the caller is
-  // about to play something else straight away).
-  if (!session.cancelled) startBridge();
 }
 
 /**
@@ -693,7 +712,6 @@ export async function speakOne(line, opts = {}) {
   const session = { cancelled: false, cancelHooks: new Set() };
   activeSession = session;
   await speakLine(line, { session, rateMultiplier: opts.rateMultiplier ?? 1 });
-  if (!session.cancelled) startBridge();
 }
 
 /** Stop all speech immediately (skip / restart). */
@@ -702,11 +720,8 @@ export function stop() {
     activeSession.cancelled = true;
     for (const hook of [...activeSession.cancelHooks]) hook();
   }
-  if (audioEl) {
-    bridging = false;
-    bridgeToken += 1;
-    audioEl.loop = false;
-    quietPause(audioEl);
-  }
+  // The keep-alive deliberately keeps playing: stop() is how every seek,
+  // restart and skip begins, and the lesson is still live through all of them.
+  quietPause(audioEl);
   window.speechSynthesis?.cancel();
 }

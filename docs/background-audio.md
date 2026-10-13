@@ -123,15 +123,22 @@ foreclose doing it later.
   player and on the lock screen, as one state owned by `tts.js`. A premium clip pauses mid-word; a
   browser-speech line restarts on resume. An outside pause (a call, headphones unplugged) pauses
   the lesson too, instead of the line watchdog marching on through audio nobody hears.
-- **The gaps were the real problem.** Lessons play one clip per line, plus silence while the next
-  chapter is written. A locked phone suspends a silent page, so while a lesson is live the same
-  `<audio>` element loops one second of silence through every gap (the "bridge") until the next
-  real clip takes it over. The page never goes quiet, so it never gets suspended.
+- **Short clips were the real problem.** Lessons play one clip per line, and Chrome on Android
+  treats any media under 5 seconds as a one-shot sound effect: no media notification, and nothing
+  keeping the page alive once the screen locks. The first attempt filled the gaps with a
+  1-second silent loop on the same element. On a real phone that kept playing briefly in the
+  background but stopped on lock, because it was short too. What ships instead is a second
+  `<audio>` element, the **keep-alive**, which loops a 10-second track for the whole live lesson,
+  straight through every line and every gap. The track is a 30 Hz tone at -60 dBFS rather than
+  digital silence, because Chrome also checks whether a tab is actually audible (cut-off about
+  -72 dBFS) before it throttles or freezes it. That level and frequency are far below hearing
+  through headphones and below anything a phone speaker reproduces.
 - **Screen off → fetch the whole chapter ahead**, so each line plays straight from cache the
   moment the last one ends. With the screen on it still fetches only 3 lines ahead.
 - **Checks need the screen** — see `docs/spec.md` §6: with the screen off they're heard but not
   asked, and recorded as `not_asked`.
 
-Verified in desktop Chromium with mocked audio. **Not yet verified on a real locked iPhone or
-Android phone** — iOS especially decides for itself what a background page may do, so that test
+Verified in desktop Chromium with mocked audio, and the first version was tried on a real Android
+phone, which is how the 5-second rule surfaced. **The keep-alive version still needs that phone
+test** — iOS especially decides for itself what a background page may do, so that test
 is the one that settles whether this holds.
