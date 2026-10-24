@@ -152,6 +152,7 @@ function route() {
   // untouched.
   if (!lesson && location.hash !== '#teach') {
     ui.cancelSourceConfirm();
+    ui.cancelPlanConfirm();
     ui.setStudentStatus('');
     ui.showView('student');
     return;
@@ -879,6 +880,7 @@ async function onStudentStart() {
   tts.usePremiumAudio(credentials);
 
   ui.cancelSourceConfirm();
+  ui.cancelPlanConfirm();
   const plan = LENGTHS[length] ?? LENGTHS[DEFAULT_LENGTH];
 
   state = {
@@ -955,6 +957,14 @@ async function onStudentStart() {
       run.credentials
     );
     if (!isCurrentRun(run)) return;
+
+    ui.setStudentStatus('');
+    const confirmed = await ui.showPlanConfirm(chosen, planned.objectives);
+    if (!isCurrentRun(run)) return;
+    if (!confirmed) {
+      ui.renderReferences([]);
+      return ui.setStudentStatus('No problem — reword the topic (more detail helps) and try again.');
+    }
 
     run.objectives = planned.objectives;
     run.diagnosticItems = wantDiagnostic ? planned.diagnostic : [];
@@ -1425,6 +1435,7 @@ function onRestart(opts = {}) {
   setPlaybackState('none');
   ui.hideCheckpoint();
   ui.cancelReadyGate(); // a dangling "waiting for Start" promise must not outlive its run
+  ui.cancelPlanConfirm();
   ui.cancelWrapUpBar(); // same for a dangling "quiz or skip" choice
   ui.setStatus('');
   if (opts.silent !== true) ui.showView(lesson ? 'start' : 'educator');

@@ -113,6 +113,11 @@ export function init() {
   els.confirmPrompt = byId('confirm-prompt');
   els.confirmOptions = byId('confirm-options');
   els.confirmNoneBtn = byId('confirm-none-btn');
+  els.planPanel = byId('plan-panel');
+  els.planSource = byId('plan-source');
+  els.planOutline = byId('plan-outline');
+  els.planAcceptBtn = byId('plan-accept-btn');
+  els.planRejectBtn = byId('plan-reject-btn');
   els.resultHeading = byId('result-heading');
   els.resultCaveat = byId('result-caveat');
 
@@ -915,6 +920,82 @@ export function hideSourceConfirm() {
 
 export function cancelSourceConfirm() {
   openConfirm?.cancel();
+}
+
+/** Cleanup handle for an open plan-confirmation panel, if any. */
+let openPlanConfirm = null;
+
+/**
+ * "Here's the plan — is this what you meant?" Shown after plan() and before
+ * any chapter is generated. Unlike showSourceConfirm this runs every time, not
+ * just on ambiguous topics: a confidently wrong article match never triggers
+ * that panel, and this is the last cheap moment to catch it.
+ * @param {{title: string, description?: string, summary?: string}} source
+ * @param {Array<{short: string, text: string}>} objectives
+ * @returns {Promise<boolean>} true to generate, false to go back and reword
+ */
+export function showPlanConfirm(source, objectives) {
+  cancelPlanConfirm();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      hidePlanConfirm();
+      resolve(value);
+    };
+
+    const blurb = source.description || (source.summary ?? '').slice(0, 160);
+    els.planSource.replaceChildren();
+    const label = document.createElement('strong');
+    label.textContent = source.title;
+    els.planSource.append('Based on ', label, blurb ? ` — ${blurb}` : '');
+
+    els.planOutline.replaceChildren(
+      ...objectives.map((objective) => {
+        const li = document.createElement('li');
+        const heading = document.createElement('span');
+        heading.className = 'plan__short';
+        heading.textContent = objective.short;
+        li.append(heading);
+        if (objective.text && objective.text !== objective.short) {
+          const detail = document.createElement('span');
+          detail.className = 'plan__text';
+          detail.textContent = objective.text;
+          li.append(detail);
+        }
+        return li;
+      })
+    );
+
+    const onAccept = () => settle(true);
+    const onReject = () => settle(false);
+    els.planAcceptBtn.addEventListener('click', onAccept);
+    els.planRejectBtn.addEventListener('click', onReject);
+    openPlanConfirm = {
+      cancel: () => settle(false),
+      cleanup: () => {
+        els.planAcceptBtn.removeEventListener('click', onAccept);
+        els.planRejectBtn.removeEventListener('click', onReject);
+      },
+    };
+    els.planPanel.hidden = false;
+    els.planAcceptBtn.focus();
+  });
+}
+
+export function hidePlanConfirm() {
+  if (openPlanConfirm) {
+    openPlanConfirm.cleanup();
+    openPlanConfirm = null;
+  }
+  els.planPanel.hidden = true;
+  els.planOutline.replaceChildren();
+}
+
+export function cancelPlanConfirm() {
+  openPlanConfirm?.cancel();
 }
 
 /** Cleanup handle for an open "podcast ready" gate, if any. */

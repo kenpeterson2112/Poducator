@@ -202,6 +202,11 @@ body {
 .panel__options--stacked { gap: 0.6rem; }
 .panel__note { margin: 0.75rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
 
+.plan__source { margin: 0 0 0.75rem; font-size: 0.9rem; }
+.plan__outline { margin: 0; padding-left: 1.4rem; display: grid; gap: 0.5rem; }
+.plan__short { display: block; font-weight: 600; }
+.plan__text { display: block; font-size: 0.88rem; color: var(--ink-soft); }
+
 /* The checkpoint has to be noticeable without being alarming — a single
    pulse on appearance, then it just sits there (NowPod spec §11). It lives in
    the player dock, which is already pinned, so it needs no stickiness of its
@@ -1077,6 +1082,12 @@ body.player-mode .app-main {
   border-color: var(--navy-line);
 }
 .landing__panel .candidate__desc { color: var(--muted); }
+.landing__panel .plan__text { color: var(--muted); }
+.landing__panel .panel .btn--primary {
+  color: var(--navy);
+  background: var(--mint);
+  border-color: var(--mint);
+}
 
 /* Wider screens: the split still reads, the content just stops stretching. */
 @media (min-width: 46rem) {

@@ -195,6 +195,19 @@
         </button>
       </aside>
 
+      <!-- Shown after the outline is drafted and before any chapter is written,
+           so a lesson that misread the topic costs one cheap planning call, not
+           a whole podcast. -->
+      <aside id="plan-panel" class="panel" aria-labelledby="plan-heading" hidden>
+        <h3 id="plan-heading" class="panel__heading">Here's the plan — is this what you meant?</h3>
+        <p id="plan-source" class="plan__source"></p>
+        <ol id="plan-outline" class="plan__outline"></ol>
+        <div class="panel__actions">
+          <button type="button" class="btn" id="plan-reject-btn">Not what I meant</button>
+          <button type="button" class="btn btn--primary" id="plan-accept-btn">Looks right — make it</button>
+        </div>
+      </aside>
+
       <p id="student-status" class="status" role="status" aria-live="polite"></p>
 
       <!-- The shared footer is hidden on this view, so the AI disclaimer has to
