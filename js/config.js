@@ -243,15 +243,12 @@ export const GRADE_BANDS = Object.freeze({
 export const DEFAULT_GRADE_BAND = 'high';
 
 /**
- * Claude Messages API. Phase 1 calls the API directly from the browser with the
- * CORS opt-in header and a pasted key, exactly as NowPod does, so the loop is
- * demoable with no infrastructure. Phase 2 points `proxyEndpoint` at the Edge
- * Function in supabase/functions/session and students never touch a key
- * (spec §7) — `mode` is the only thing that changes.
+ * Claude Messages API. `endpoint` is used only in local development, where the
+ * browser calls the API directly with a pasted key. Everywhere else requests go
+ * through PROXY_URL below, so learners never touch a key (spec §7).
  */
 export const CLAUDE = Object.freeze({
   endpoint: 'https://api.anthropic.com/v1/messages',
-  proxyEndpoint: '/functions/v1/session',
   // Sonnet: grounded, schema-constrained generation doesn't need Opus-level
   // reasoning, and per-chapter latency is what the listener actually feels.
   model: 'claude-sonnet-5',
@@ -263,18 +260,18 @@ export const CLAUDE = Object.freeze({
 export const API_KEY_STORAGE_KEY = 'poducator_api_key';
 
 /**
- * Deployed Edge Function URL, e.g.
- *   https://<project-ref>.supabase.co/functions/v1/session
+ * Deployed Vercel Function URL (api/session.js), e.g.
+ *   https://<project-name>.vercel.app/api/session
  *
  * NOT a secret — a function URL is meant to be public, and committing it is
- * correct. The secret (the Anthropic key) lives in that function's
- * environment and never appears in this repo.
+ * correct. The secrets (the Anthropic and OpenAI keys) live in that project's
+ * environment variables and never appear in this repo.
  *
  * Empty string = local development mode: the app falls back to asking for a
  * pasted API key, exactly as it did before the gate existed. Blank it locally
  * if you want that fallback back; leave it set for anything learners touch.
  */
-export const PROXY_URL = 'https://dmvikgkwyybswabyrgni.supabase.co/functions/v1/session';
+export const PROXY_URL = 'https://poducator.vercel.app/api/session';
 
 /**
  * Which credential mode is active. UI and orchestrator both read this so they
@@ -286,7 +283,7 @@ export function usingProxy() {
 
 /**
  * Premium audio: real recorded-quality voices from OpenAI's speech endpoint,
- * fetched one transcript line at a time through the Edge Function's `speak`
+ * fetched one transcript line at a time through the server function's `speak`
  * action. Only live lessons running through the proxy use it — a pasted-key
  * dev run and a saved-lesson replay keep the browser's built-in speech, the
  * latter so demo mode stays free of network calls.

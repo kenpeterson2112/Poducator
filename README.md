@@ -10,8 +10,9 @@ growth per expectation — feeding a teacher dashboard that never learns a singl
 does report **which misconceptions the class actually holds.**
 
 > **Status:** The learner loop runs end to end against local storage, tied to
-> Ontario Grade 7 Science, Strand D. Supabase schema and the Edge Function ship
-> here but are not yet wired up. No teacher dashboard yet.
+> Ontario Grade 7 Science, Strand D. Live lessons run through one small Vercel Function
+> that holds the API keys. Sessions are saved in the browser only; there is no database or
+> teacher dashboard yet.
 
 ## Lineage
 
@@ -71,13 +72,17 @@ resolved beats being lectured at, and it makes being confused feel normal.
 
 ## Privacy: anonymous now, attributable by the teacher
 
+*Today there is no database: sessions stay in the learner's browser, and the server function only
+relays lesson and speech requests. What follows is the design for the planned teacher dashboard
+(schema in `supabase/migrations/`).*
+
 The database has **no column for a student's name.** Not nullable — absent.
 
 Students join with a class code and an opaque pseudonym (`lynx-particle-42`) the teacher assigned
 offline. The name↔pseudonym map lives only in the teacher's browser, exportable as CSV. So a
 teacher can see exactly who answered what, and the server never can.
 
-All student writes go through the Edge Function, which holds the service-role key and validates
+All student writes would go through the server function, which holds the service-role key and validates
 the class code. The student tables have **no anon-role RLS policies at all** — that absence *is*
 the access control. Full write-up, including the limitations, in [`docs/privacy.md`](docs/privacy.md).
 
@@ -145,9 +150,8 @@ Poducator/
 │   ├── ui.js                     # DOM only
 │   ├── store.js                  # IndexedDB + offline outbox
 │   └── app.js                    # state machine
-├── supabase/
-│   ├── migrations/               # schema + RLS + misconception views (Phase 2)
-│   └── functions/session/        # Claude proxy + student writes (Phase 2)
+├── api/session.js                # Vercel Function: Claude + speech proxy, holds the keys
+├── supabase/migrations/          # schema sketch for a future teacher dashboard (unused)
 └── docs/{spec,privacy}.md
 ```
 
@@ -170,32 +174,37 @@ Open <http://localhost:8000>. You land on the educator picker: choose 1–3 expe
 
 Learners never see an API key, never make an account, and no key is ever sent to their browser.
 
-The key lives in one place: the `ANTHROPIC_API_KEY` secret on the deployed Edge Function. It is
+The key lives in one place: the `ANTHROPIC_API_KEY` environment variable on the deployed Vercel
+Function ([`api/session.js`](api/session.js)). It is
 not in this repo, and it must never be — **the repository is public**, so a committed key is a
 published key, git history keeps it published after any later removal, and GitHub and Anthropic
 both scan public repos and revoke what they find.
 
 **There is no access gate.** Anyone with the app's URL can generate lessons on your key. The
 bound on that is a **spend limit on the Anthropic key**, set in the Anthropic console. The function
-also rate-limits per IP, but Edge instances are ephemeral, so treat that as a speed bump rather
-than a quota.
+also rate-limits per IP, but function instances are ephemeral, so treat that as a speed bump
+rather than a quota.
 
 ### Deploying
 
-1. **Create a Supabase project** (free tier is enough).
-2. **Set the secrets** — Dashboard → Edge Functions → Secrets, or
-   `supabase secrets set ANTHROPIC_API_KEY=...`. See
-   [`.env.example`](.env.example) for what's needed. Never commit values. Optionally also set
-   `OPENAI_API_KEY` for premium voices — see [`docs/premium-audio.md`](docs/premium-audio.md).
-3. **Deploy the function:** `supabase functions deploy session --no-verify-jwt`, or let the GitHub
-   integration do it — [`supabase/config.toml`](supabase/config.toml) already sets
-   `verify_jwt = false` for that path. Either way this flag is required: learners hold no JWT, so
-   with verification on, every request is rejected by the platform before the function runs.
-4. **Set a spend limit** on the Anthropic key. This is the control that actually bounds abuse.
-5. **Put the function URL** into `PROXY_URL` in [`js/config.js`](js/config.js) — a function URL is
-   public by design and correct to commit.
-6. **Enable GitHub Pages** (Settings → Pages → `main` / root). All asset paths are relative, so it
-   works under `/Poducator/` unchanged.
+The app is static (GitHub Pages); the only server piece is one Vercel Function,
+[`api/session.js`](api/session.js), which holds the API keys. It has no database, so there is
+nothing to pause or keep warm.
+
+1. **Create the Vercel project:** Vercel dashboard → Add New → Project → import this repository.
+   Keep the defaults (no framework, no build command). Name it `poducator` so the function lands
+   at `https://poducator.vercel.app/api/session`; a different name means a different URL (step 4).
+2. **Set the environment variables** — Project → Settings → Environment Variables:
+   `ANTHROPIC_API_KEY`, and optionally `OPENAI_API_KEY` for premium voices (see
+   [`docs/premium-audio.md`](docs/premium-audio.md)). See [`.env.example`](.env.example). Never
+   commit values. Redeploy after adding them — variables apply to new deployments only.
+3. **Set a spend limit** on each key in its provider's console. This is the control that actually
+   bounds abuse.
+4. **Check `PROXY_URL`** in [`js/config.js`](js/config.js) matches the function's production URL —
+   a function URL is public by design and correct to commit.
+5. **Enable GitHub Pages** (Settings → Pages → `main` / root). All asset paths are relative, so it
+   works under `/Poducator/` unchanged. (Vercel also serves the app itself at the project's URL,
+   so either address works.)
 
 ## Two modes
 

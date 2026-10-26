@@ -1,6 +1,6 @@
 # Premium audio — OpenAI voices
 
-**Status:** Built, behind one secret. Set `OPENAI_API_KEY` on the Edge Function and live
+**Status:** Built, behind one secret. Set `OPENAI_API_KEY` on the server function and live
 lessons speak with OpenAI voices; leave it unset and everything works exactly as before on the
 browser's built-in speech. This picks up the plan scoped in
 [`background-audio.md`](background-audio.md), first half only — see *Not in this change* below.
@@ -12,11 +12,11 @@ chapter script lands ──▶ tts.prefetch(first 3 lines)       (during the rea
                                                               while the last chapter plays)
 line i starts ──────────▶ prefetch lines i+1, i+2
                           clip(line i) ─▶ POST {action:'speak', text, voice, instructions}
-                                          to the Edge Function ─▶ OpenAI /v1/audio/speech
+                                          to the server function ─▶ OpenAI /v1/audio/speech
                           ◀── MP3 bytes ── blob URL ── one shared <audio> element ── `ended`
 ```
 
-- **Server** — `supabase/functions/session` gains a `speak` action. It builds the upstream request
+- **Server** — `api/session.js` has a `speak` action. It builds the upstream request
   field by field: the voice must be on an allowlist, text is capped at 1,500 characters (one line
   is a sentence or three — the cap keeps the endpoint useless as a free general-purpose TTS), and
   the **model is fixed server-side** (`gpt-4o-mini-tts`, overridable by the `OPENAI_TTS_MODEL`
