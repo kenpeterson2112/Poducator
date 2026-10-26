@@ -207,7 +207,10 @@ assessment layer and one session format.
 Open the app and you get a topic box. Type what you need to learn, pick how long
 you've got (~5 / ~10 / ~20 minutes), and go. Sources are found and confirmed
 automatically; an ambiguous topic ("mercury") asks which you meant **before**
-spending any generation call.
+spending any generation call. Then, every time, you see the plan — the source
+article and the outline of what will be covered — and confirm it before any
+chapter is written. If it misread the topic, "Not what I meant" sends you back
+to reword it, having spent only the one cheap planning call.
 
 **Student mode does not score, deliberately.** The two or three opening
 questions are *optional*, and they **steer** the lesson rather than grade it —
