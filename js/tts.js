@@ -4,7 +4,7 @@
  * Two engines behind one surface (speakChapter / speakOne / stop):
  *
  *   premium   real voices from OpenAI's speech endpoint, one MP3 per line,
- *             fetched through the Edge Function and played in an <audio>
+ *             fetched through the server function and played in an <audio>
  *             element. Live proxy lessons only — see usePremiumAudio().
  *   browser   the Web Speech API. Everything else, and the fallback for any
  *             single line the premium engine can't deliver in time.

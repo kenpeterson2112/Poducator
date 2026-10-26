@@ -1,0 +1,6 @@
+{
+  "name": "poducator",
+  "private": true,
+  "type": "module",
+  "description": "Static app plus one Vercel Function (api/session.js). No dependencies, no build step."
+}

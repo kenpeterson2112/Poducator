@@ -7,8 +7,8 @@
  *                 returning visitor on their next load; a student with no
  *                 connection still gets the last shell that loaded. (This was
  *                 cache-first and had to change — see the fetch handler.)
- *   Everything  → network-only, never cached. Wiki lookups, Claude calls and
- *   else          Supabase writes are all either large, personal, or both.
+ *   Everything  → network-only, never cached. Wiki lookups, Claude and speech calls
+ *   else          are all either large, personal, or both.
  *                 Caching a generated lesson would also mean caching a
  *                 student's answers on a shared Chromebook, which is exactly
  *                 what the privacy model exists to prevent.
@@ -16,7 +16,7 @@
  * Bump CACHE_VERSION on any shell change — old caches are cleared on activate.
  */
 
-const CACHE_VERSION = 'poducator-v10';
+const CACHE_VERSION = 'poducator-v11';
 
 /**
  * A shell request that always checks with the server first.
@@ -96,7 +96,7 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   // Only our own origin is cached at all. Anything cross-origin — wiki APIs,
-  // the Claude API, Supabase — goes straight to the network, untouched.
+  // the Claude API, the server function — goes straight to the network, untouched.
   if (url.origin !== self.location.origin) return;
 
   /*
