@@ -55,8 +55,8 @@
   <!-- ============================================================= -->
   <section id="student-view" class="view view--active landing" aria-labelledby="student-heading">
 
-    <!-- Top 45%: orange. Carries its own header, because the landing page is
-         the one screen where the brand should arrive before the interface. -->
+    <!-- Slim orange brand bar. Kept short so the form is on screen straight
+         away when the app is embedded in an iframe on another site. -->
     <div class="landing__hero">
       <header class="brandbar">
         <!-- Three slots, space-between, so the wordmark sits centred.
@@ -95,44 +95,15 @@
           </svg>
         </button>
       </header>
-
-      <!-- Hand-authored SVG rather than a raster asset: it scales on any
-           screen, themes with the palette, and costs no extra request. -->
-      <div class="hero-art" aria-hidden="true">
-        <svg viewBox="0 0 320 240" focusable="false">
-          <circle cx="248" cy="52" r="26" fill="#FFB340"/>
-          <rect x="34" y="34" width="30" height="30" rx="8" fill="#E85D04" opacity=".55"
-                transform="rotate(-18 49 49)"/>
-          <circle cx="60" cy="182" r="11" fill="#E85D04" opacity=".45"/>
-          <g fill="none" stroke="#5DD3AD" stroke-linecap="round" stroke-width="5">
-            <path d="M44 120q16-22 32 0t32 0" opacity=".55"/>
-            <path d="M212 120q16-22 32 0t32 0" opacity=".55"/>
-            <path d="M28 146q10-14 20 0t20 0" opacity=".3"/>
-            <path d="M252 146q10-14 20 0t20 0" opacity=".3"/>
-          </g>
-          <ellipse cx="160" cy="214" rx="66" ry="10" fill="#161C24" opacity=".14"/>
-          <path d="M112 214q6-52 48-52t48 52Z" fill="#161C24"/>
-          <path d="M141 170h38v16h-38z" fill="#E8A87C"/>
-          <circle cx="160" cy="139" r="34" fill="#F2C29B"/>
-          <path d="M127 132a33 33 0 0 1 66 0q-8-9-19-6-6-9-18-8-13-1-19 8-7-2-10 6Z" fill="#4A362A"/>
-          <circle cx="149" cy="140" r="3.4" fill="#2A1D16"/>
-          <circle cx="172" cy="140" r="3.4" fill="#2A1D16"/>
-          <path d="M152 154q8 6 16 0" fill="none" stroke="#2A1D16" stroke-width="2.6"
-                stroke-linecap="round"/>
-          <path d="M120 138v-6a40 40 0 0 1 80 0v6" fill="none" stroke="#5DD3AD" stroke-width="7"
-                stroke-linecap="round"/>
-          <rect x="110" y="132" width="17" height="30" rx="8" fill="#5DD3AD"/>
-          <rect x="193" y="132" width="17" height="30" rx="8" fill="#5DD3AD"/>
-        </svg>
-      </div>
     </div>
 
-    <!-- Bottom 55%: navy. -->
+    <!-- Navy panel: everything below the brand bar. -->
     <div class="landing__panel">
       <h2 id="student-heading" class="landing__heading">Amplified Learning</h2>
       <p class="landing__sub">
-        Name what you need to learn. You'll get a short podcast built from open
-        reference sources, with a couple of checks along the way.
+        Name what you need to learn. You'll answer two quick questions, listen
+        to a short podcast built from open reference sources, then answer
+        three more to see what stuck.
       </p>
 
       <form id="student-form" class="landing-form" autocomplete="off">
@@ -176,14 +147,6 @@
           </span>
         </div>
 
-        <label class="ltoggle">
-          <input type="checkbox" id="student-quickcheck" checked />
-          <span class="ltoggle__text">
-            Ask me two or three questions first
-            <small>They aren't marked — they just decide what the podcast starts with.</small>
-          </span>
-        </label>
-
         <button type="submit" class="cta" id="student-start-btn">Generate Podcast</button>
       </form>
 
@@ -217,15 +180,11 @@
         Poducator uses AI and can make mistakes. It's a study aid — not a
         substitute for your teacher or your textbook.
       </p>
-
-      <p class="student-teach-link">
-        Teaching a class? <a href="#teach">Build a curriculum lesson instead.</a>
-      </p>
     </div>
   </section>
 
   <!-- ============================================================= -->
-  <!-- EDUCATOR — pick the expectations, get a link (now at #teach)   -->
+  <!-- EDUCATOR — not routed while the app is student-only (route()) -->
   <!-- ============================================================= -->
   <section id="educator-view" class="view" aria-labelledby="educator-heading">
     <h2 id="educator-heading" class="view__heading">Build a lesson</h2>
@@ -420,18 +379,6 @@
         <ul id="checkpoint-choices" class="panel__options"></ul>
         <p id="checkpoint-note" class="panel__note"></p>
       </aside>
-
-      <!-- Student mode only (js/app.js onStudentStart) — appears once the last
-           chapter finishes, in place of jumping straight to results. In-flow,
-           not a modal: the lesson is genuinely over, there's nothing left to
-           protect the learner from seeing, just a choice to make. -->
-      <div id="wrapup-bar" class="wrapup-bar" hidden>
-        <p class="wrapup-bar__text">Want to check what stuck?</p>
-        <div class="wrapup-bar__actions">
-          <button type="button" class="btn btn--primary" id="wrapup-show-btn">Show quiz</button>
-          <button type="button" class="btn btn--ghost" id="wrapup-skip-btn">Skip to results</button>
-        </div>
-      </div>
 
       <div class="player-controls">
         <div class="transport-group" role="group" aria-label="Chapter navigation">

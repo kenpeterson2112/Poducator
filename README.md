@@ -206,6 +206,20 @@ nothing to pause or keep warm.
    works under `/Poducator/` unchanged. (Vercel also serves the app itself at the project's URL,
    so either address works.)
 
+### Embedding in another site
+
+The app works inside an iframe — neither host sends headers that block framing:
+
+```html
+<iframe src="https://kenpeterson2112.github.io/Poducator/" title="Poducator"
+        width="100%" height="760" style="border: 0"
+        allow="autoplay; clipboard-write; web-share"></iframe>
+```
+
+`allow` lets audio play and the share button work from inside the frame. Saved
+lessons live in the browser's storage for that embedding, so a lesson saved
+inside the iframe won't appear when the app is opened directly, and vice versa.
+
 ## Two modes
 
 Poducator has two front doors, sharing one player, one TTS engine, one
@@ -221,36 +235,33 @@ article and the outline of what will be covered — and confirm it before any
 chapter is written. If it misread the topic, "Not what I meant" sends you back
 to reword it, having spent only the one cheap planning call.
 
-**Student mode does not score, deliberately.** The two or three opening
-questions are *optional*, and they **steer** the lesson rather than grade it —
-they feed the same gap profile, so the idea you're shakiest on gets taught
-first. They are never reported back as a result.
+Every lesson has the same shape: **two opening questions** (mandatory), then the
+podcast with **no questions mid-lesson**, then **three closing questions**. The
+opening questions also steer the lesson — they feed the same gap profile, so the
+idea you're shakiest on gets taught first.
 
-That's an honest limit, not a missing feature. Two things make a score
-unsupportable here:
-
-1. With an optional opener, most sessions have **no baseline** — and a growth
-   number with nothing to compare against is not a measurement.
-2. There is **no item bank** for an arbitrary topic, so Claude would be writing
-   the questions *and* teaching the content. Curriculum mode avoids this with
-   hand-authored items; student mode cannot.
-
-So the end screen is a wrap-up: what was covered, and what's worth another look
-based on the checks along the way.
+The end screen compares the two: how many you got right before listening and
+after, plus the ideas the closing questions say are worth another look. Treat it
+as a quick signal, not a grade: Claude writes the questions for an arbitrary
+topic *and* teaches the content, so there is no independent test behind it the
+way curriculum mode has hand-authored items.
 
 Length buys **more ground covered**, not more words per idea — the minute budget
 mostly sets how many objectives get derived. It also gently scales chapter
 depth, on top of the existing per-objective sizing in `js/objectives.js`, so a
 misconception chapter stays longer than a solid one at every length.
 
-### Curriculum mode — `#teach`
+### Curriculum mode — switched off for now
 
-Unchanged: an educator picks 1–3 Ontario Grade 7 Science expectations, gets a
-link, and the learner opens a lesson locked to exactly those. This path **is**
+The app is student-only for now: the "Teaching a class?" link is gone and
+`#teach` opens the student screen. The educator picker is still in the code
+(`route()` in `js/app.js` says how to turn it back on). When on, an educator
+picks 1–3 Ontario Grade 7 Science expectations, gets a link, and the learner
+opens a lesson locked to exactly those. This path **is**
 scored, because its items are hand-authored (`js/curriculum/items.js`) and the
 opening quiz is mandatory — so the before/after comparison means something.
 
-Existing `#e=…` lesson links keep working exactly as before.
+Existing `#e=…` lesson links keep working exactly as before, even while the picker is off.
 
 ## Saved lessons and demo mode
 

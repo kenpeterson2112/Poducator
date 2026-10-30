@@ -93,9 +93,6 @@ export function init() {
   els.readyGateSpinner = byId('ready-gate-spinner');
   els.readyGateStartBtn = byId('ready-gate-start-btn');
 
-  els.wrapUpBar = byId('wrapup-bar');
-  els.wrapUpShowBtn = byId('wrapup-show-btn');
-  els.wrapUpSkipBtn = byId('wrapup-skip-btn');
 
   els.resultSummary = byId('result-summary');
   els.resultObjectives = byId('result-objectives');
@@ -107,7 +104,6 @@ export function init() {
   els.studentTopic = byId('student-topic');
   els.studentLength = byId('student-length');
   els.studentGrade = byId('student-grade');
-  els.studentQuickCheck = byId('student-quickcheck');
   els.studentStatus = byId('student-status');
   els.confirmPanel = byId('confirm-panel');
   els.confirmPrompt = byId('confirm-prompt');
@@ -845,7 +841,6 @@ export function readStudent() {
     topic: els.studentTopic.value.trim(),
     length: els.studentLength.value,
     gradeBand: els.studentGrade.value,
-    wantDiagnostic: els.studentQuickCheck.checked,
   };
 }
 
@@ -1071,58 +1066,6 @@ export function cancelReadyGate() {
   openReadyGate?.cancel();
 }
 
-/** Cleanup handle for an open wrap-up bar, if any. */
-let openWrapUpBar = null;
-
-/**
- * Student mode's closing bar — appears once the last chapter is done, in
- * place of jumping straight to the wrap-up quiz or the result screen.
- * Genuinely optional, not a modal: nothing is hidden behind it, it's just a
- * choice ("Show quiz" or "Skip to results"). Same promise idiom as
- * showSourceConfirm/showReadyGate above.
- * @returns {Promise<'quiz'|'skip'>}
- */
-export function showWrapUpBar() {
-  cancelWrapUpBar();
-
-  return new Promise((resolve) => {
-    let settled = false;
-    const settle = (value) => {
-      if (settled) return;
-      settled = true;
-      hideWrapUpBar();
-      resolve(value);
-    };
-
-    const onShow = () => settle('quiz');
-    const onSkip = () => settle('skip');
-    els.wrapUpShowBtn.addEventListener('click', onShow);
-    els.wrapUpSkipBtn.addEventListener('click', onSkip);
-    openWrapUpBar = {
-      cancel: () => settle('skip'),
-      cleanup: () => {
-        els.wrapUpShowBtn.removeEventListener('click', onShow);
-        els.wrapUpSkipBtn.removeEventListener('click', onSkip);
-      },
-    };
-    els.wrapUpBar.hidden = false;
-  });
-}
-
-export function hideWrapUpBar() {
-  if (openWrapUpBar) {
-    openWrapUpBar.cleanup();
-    openWrapUpBar = null;
-  }
-  els.wrapUpBar.hidden = true;
-}
-
-/** Force-resolve (as 'skip') an open bar — mirrors cancelReadyGate; called
- * from onRestart() so leaving mid-choice can never hang a later run. */
-export function cancelWrapUpBar() {
-  openWrapUpBar?.cancel();
-}
-
 /**
  * Swap the result screen's wording for the mode that produced it.
  *
@@ -1133,58 +1076,76 @@ export function cancelWrapUpBar() {
  */
 export function setResultMode(mode) {
   const student = mode === 'student';
-  els.resultHeading.textContent = student ? "Here's what we covered." : "Here's what moved.";
+  els.resultHeading.textContent = "Here's what moved.";
   els.resultCaveat.textContent = student
-    ? 'This one was not marked. The questions along the way were there to steer the ' +
-      'podcast, not to score you — so treat anything below as a nudge about where to ' +
-      'look again, not a result.'
+    ? 'Two questions before and three after is a quick signal about what stuck — not a ' +
+      'grade. Nobody sees this but you.'
     : 'Three questions before and three after is a signal about where to look next — ' +
       'not a grade, and not a measurement. Your teacher sees this alongside everything ' +
       'else they know about your work.';
 }
 
 /**
- * Student-mode wrap-up: what was covered, and what is worth another look.
- * No bars, no percentages — student mode does not score (spec §7b).
+ * Student-mode result: how the opening questions went against the closing
+ * ones, then which ideas the closing questions say are worth another look.
  * @param {Array<{id: string, text: string, short: string}>} objectives
- * @param {Array<{objectiveId: string, outcome: string}>} chapters
+ * @param {Array<{phase: string, objectiveId: string, correct: boolean}>} responses
  */
-export function renderStudentWrapUp(objectives, chapters) {
+export function renderStudentWrapUp(objectives, responses) {
   const byId = new Map(objectives.map((o) => [o.id, o]));
-  // A check that was never offered (screen off — see config.js NOT_ASKED)
-  // says nothing about the idea, so it isn't counted as one to look at again.
-  const missed = chapters.filter((c) => c.outcome !== 'correct' && c.outcome !== 'not_asked');
+  const before = responses.filter((r) => r.phase === 'diagnostic');
+  const after = responses.filter((r) => r.phase === 'final');
+  const right = (rs) => rs.filter((r) => r.correct).length;
+  const pct = (rs) => (rs.length ? Math.round((right(rs) / rs.length) * 100) : 0);
 
+  const change = pct(after) - pct(before);
   els.resultSummary.textContent =
-    missed.length === 0
-      ? `You covered ${chapters.length} idea${chapters.length === 1 ? '' : 's'} and the checks all landed.`
-      : `You covered ${chapters.length} idea${chapters.length === 1 ? '' : 's'}. ` +
-        `${missed.length} ${missed.length === 1 ? 'is' : 'are'} worth another look.`;
+    after.length === 0
+      ? 'The closing questions did not run, so there is nothing to compare.'
+      : change > 0
+        ? 'Your understanding improved after listening.'
+        : pct(after) === 100
+          ? 'You got everything right — nice.'
+          : change === 0
+            ? 'About the same as before. The ideas below are worth another listen.'
+            : 'This one was tough. The ideas below are worth another listen.';
+
+  const scoreRow = (label, rs, barClass) => {
+    const li = document.createElement('li');
+    li.className = 'objective-result';
+    const head = document.createElement('p');
+    head.className = 'objective-result__text';
+    head.textContent = `${label}: ${right(rs)} of ${rs.length} right`;
+    const bar = document.createElement('div');
+    bar.className = 'growth';
+    const fill = document.createElement('span');
+    fill.className = barClass;
+    fill.style.width = `${pct(rs)}%`;
+    bar.append(fill);
+    li.append(head, bar);
+    return li;
+  };
+
+  // An idea counts as worth another look when any closing question on it was
+  // missed — the closing questions are the most recent evidence.
+  const missedIds = [...new Set(after.filter((r) => !r.correct).map((r) => r.objectiveId))];
+  const missedRows = missedIds.map((id) => {
+    const li = document.createElement('li');
+    li.className = 'objective-result';
+    const head = document.createElement('p');
+    head.className = 'objective-result__text';
+    head.textContent = byId.get(id)?.text ?? id;
+    const label = document.createElement('p');
+    label.className = 'objective-result__label';
+    label.textContent = 'Worth another look.';
+    li.append(head, label);
+    return li;
+  });
 
   els.resultObjectives.replaceChildren(
-    ...chapters.map((chapter) => {
-      const objective = byId.get(chapter.objectiveId);
-      const li = document.createElement('li');
-      li.className = 'objective-result';
-
-      const head = document.createElement('p');
-      head.className = 'objective-result__text';
-      head.textContent = objective?.text ?? chapter.objectiveShort ?? chapter.objectiveId;
-
-      const label = document.createElement('p');
-      label.className = 'objective-result__label';
-      label.textContent =
-        chapter.outcome === 'correct'
-          ? 'The check on this one landed.'
-          : chapter.outcome === 'no_response'
-            ? 'You skipped the check on this one.'
-            : chapter.outcome === 'not_asked'
-              ? 'No check on this one — the screen was off.'
-              : 'Worth another look.';
-
-      li.append(head, label);
-      return li;
-    })
+    ...(before.length ? [scoreRow('Before listening', before, 'growth__held')] : []),
+    ...(after.length ? [scoreRow('After listening', after, 'growth__gain')] : []),
+    ...missedRows
   );
 }
 

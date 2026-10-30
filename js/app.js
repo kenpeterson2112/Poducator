@@ -44,13 +44,15 @@ import {
   LINE_SEEK_COUNT,
   SPEED_PRESETS,
   SPEED_STORAGE_KEY,
+  STUDENT_DIAGNOSTIC_ITEMS,
+  STUDENT_FINAL_ITEMS,
 } from './config.js';
 import * as sources from './sources/index.js';
 import * as claude from './claude.js';
 import * as assessment from './assessment.js';
 import * as objectivesLib from './objectives.js';
 import * as curriculum from './curriculum/index.js';
-import { CURRICULUM, byStrand } from './curriculum/ontario-sci-7-d.js';
+import { CURRICULUM } from './curriculum/ontario-sci-7-d.js';
 import * as tts from './tts.js';
 import * as store from './store.js';
 import * as sessionfile from './sessionfile.js';
@@ -146,11 +148,13 @@ function route() {
 
   lesson = curriculum.parseLessonConfig(location.hash);
 
-  // Student mode is now the front door. A teacher who bookmarked the bare URL
-  // lands here instead of the picker — the "Teaching a class?" link on the
-  // student screen is the way back, and existing #e=… lesson links are
-  // untouched.
-  if (!lesson && location.hash !== '#teach') {
+  // Student-only for now: every address without a lesson in it, #teach
+  // included, opens the student screen. The educator picker (#educator-view,
+  // ui.renderEducatorPicker) is kept but not routed; to bring it back, send
+  // '#teach' to it here and restore the "Teaching a class?" link in
+  // index.html. Existing #e=… lesson links still open, so links already
+  // handed out keep working.
+  if (!lesson) {
     ui.cancelSourceConfirm();
     ui.cancelPlanConfirm();
     ui.setStudentStatus('');
@@ -158,17 +162,11 @@ function route() {
     return;
   }
 
-  if (lesson) {
-    ui.renderLockedLesson(curriculum.toObjectives(lesson.codes), {
-      curriculumLabel: CURRICULUM.label,
-      strandTitle: CURRICULUM.strandTitle,
-    });
-    ui.showView('start');
-  } else {
-    ui.renderEducatorPicker(byStrand(), CURRICULUM);
-    refreshLessonLink();
-    ui.showView('educator');
-  }
+  ui.renderLockedLesson(curriculum.toObjectives(lesson.codes), {
+    curriculumLabel: CURRICULUM.label,
+    strandTitle: CURRICULUM.strandTitle,
+  });
+  ui.showView('start');
 }
 
 /** True while this run is still the active one. */
@@ -409,6 +407,9 @@ function chapterInput(chapter, index, total) {
     chapterIndex: index,
     chapterTotal: total,
     lastCheckpoint: run.lastCheckpoint,
+    // Student lessons have no mid-lesson question: the before/after questions
+    // around the whole podcast are the check instead.
+    withCheckpoint: !run.isStudent,
   };
 }
 
@@ -601,7 +602,8 @@ async function playChapter(generated, planned) {
   if (checkpoint) document.addEventListener('visibilitychange', onVisibilityChange);
 
   run.currentLines = lines;
-  run.currentCheckpointAt = checkpointAt;
+  // With no question in this chapter there is nothing for Forward to stop at.
+  run.currentCheckpointAt = checkpoint ? checkpointAt : lines.length;
   run.currentLineIndex = 0;
   run.restartRequested = false;
   run.skipRequested = false;
@@ -689,7 +691,10 @@ async function playChapter(generated, planned) {
       run.restartRequested = false;
       return CHAPTER_RESTART;
     }
-    return CHECKPOINT_OUTCOME.NO_RESPONSE;
+    // No question was put to the listener, so there is no answer to judge —
+    // NOT_ASKED keeps applyCheckpoint from re-teaching the chapter and the
+    // next chapter's prompt from claiming the listener skipped a check.
+    return CHECKPOINT_OUTCOME.NOT_ASKED;
   }
 
   // When the audio genuinely ends with nothing picked, the checkpoint
@@ -859,16 +864,15 @@ function readCredentials() {
 }
 
 /**
- * Student mode start: topic → sources → objectives → optional opener → teach.
+ * Student mode start: topic → sources → objectives → 2 opening questions →
+ * teach (no mid-lesson questions) → 3 closing questions → before/after result.
  *
- * The one structural difference from curriculum mode is what happens at the
- * end: this path does NOT score. The opening questions steer the lesson (they
- * feed the same gap profile) and are never reported back, because with an
- * optional opener there is often no baseline, and with model-authored items
- * there would be no independent test to measure against. See spec §7b.
+ * The opening questions also steer the lesson (they feed the same gap
+ * profile). Both question sets are model-written, so the before/after result
+ * is a quick signal for the learner, not a measurement. See spec §7b.
  */
 async function onStudentStart() {
-  const { topic, length, gradeBand, wantDiagnostic } = ui.readStudent();
+  const { topic, length, gradeBand } = ui.readStudent();
   if (!topic) return;
 
   let credentials;
@@ -952,7 +956,6 @@ async function onStudentStart() {
         source: source.text,
         gradeBand,
         objectiveTarget: Math.min(plan.objectives, CHAPTER_BOUNDS.max),
-        wantDiagnostic,
       },
       run.credentials
     );
@@ -967,11 +970,10 @@ async function onStudentStart() {
     }
 
     run.objectives = planned.objectives;
-    run.diagnosticItems = wantDiagnostic ? planned.diagnostic : [];
-    // Unlike the opener, the closing check-in isn't behind a toggle — it
-    // rides the same plan() call regardless, and the wrap-up bar below is
-    // itself the opt-in: a learner who doesn't want it just skips the bar.
-    run.finalItems = planned.final;
+    // Capped here as well as asked for in the prompt: the model's count is a
+    // request, and the before/after comparison expects these exact sizes.
+    run.diagnosticItems = planned.diagnostic.slice(0, STUDENT_DIAGNOSTIC_ITEMS);
+    run.finalItems = planned.final.slice(0, STUDENT_FINAL_ITEMS);
     run.session.objectives = planned.objectives;
     run.session.diagnosticItems = run.diagnosticItems;
 
@@ -983,16 +985,10 @@ async function onStudentStart() {
     if (!(await runDiagnostic({ heading: 'First — what do you already think?' }))) return;
     if (!(await teach())) return;
 
-    // A quiet, optional close — never auto-triggered, never framed as a
-    // grade. If the model returned no closing items, there's nothing to
-    // offer, so the bar never appears at all rather than gating on an empty
-    // quiz.
-    if (run.finalItems.length > 0) {
-      const choice = await ui.showWrapUpBar();
-      if (!isCurrentRun(run)) return;
-      if (choice === 'quiz') await runFinalQuiz();
-      if (!isCurrentRun(run)) return;
-    }
+    // The closing questions follow the last chapter directly — they are the
+    // "after" half of the before/after check on the result screen.
+    await runFinalQuiz();
+    if (!isCurrentRun(run)) return;
 
     await finishStudent();
   } catch (err) {
@@ -1004,16 +1000,13 @@ async function onStudentStart() {
   }
 }
 
-/**
- * Student-mode wrap-up. No score, by design — see spec §7b and the note on
- * onStudentStart above.
- */
+/** Student-mode wrap-up: the before/after result — see onStudentStart above. */
 async function finishStudent() {
   const run = state;
   if (!isCurrentRun(run)) return;
 
   ui.setResultMode('student');
-  ui.renderStudentWrapUp(run.objectives, run.playedChapters);
+  ui.renderStudentWrapUp(run.objectives, run.responses);
   ui.showView('result');
 
   run.session.responses = run.responses;
@@ -1436,9 +1429,8 @@ function onRestart(opts = {}) {
   ui.hideCheckpoint();
   ui.cancelReadyGate(); // a dangling "waiting for Start" promise must not outlive its run
   ui.cancelPlanConfirm();
-  ui.cancelWrapUpBar(); // same for a dangling "quiz or skip" choice
   ui.setStatus('');
-  if (opts.silent !== true) ui.showView(lesson ? 'start' : 'educator');
+  if (opts.silent !== true) ui.showView(lesson ? 'start' : 'student');
   reportPending();
 }
 

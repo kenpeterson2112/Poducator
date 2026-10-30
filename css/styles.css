@@ -617,29 +617,6 @@ body.player-mode .app-main {
 }
 .ready-gate__start { margin-top: 0; }
 
-/* Student mode's closing bar (js/ui.js showWrapUpBar()) — in the player dock
-   with the checkpoint panel, so it's on screen the moment it appears, but it
-   is never a modal: nothing behind it is hidden or blocked. */
-.wrapup-bar {
-  margin: 0;
-  padding: 1rem;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-}
-.wrapup-bar__text { margin: 0; font-weight: 600; }
-.wrapup-bar__actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-.wrapup-bar__actions .btn { width: auto; }
-
 /* ---------- Result ---------- */
 
 .result-summary { font-size: 1.05rem; margin: 0 0 1.25rem; }
@@ -812,15 +789,6 @@ body.player-mode .app-main {
   line-height: 1.45;
 }
 
-.student-teach-link {
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-}
-.student-teach-link a { color: var(--accent); }
-
 /* ==================================================================== */
 /* LANDING PAGE                                                         */
 /*                                                                      */
@@ -843,22 +811,21 @@ body.player-mode .app-main {
   min-height: 100dvh;
 }
 
-/* Roughly the 45/55 split, but as a MINIMUM rather than a fixed height:
-   a locked 45vh would clip the form on a short phone in landscape. */
+/* A slim brand bar, not a hero: when the app is embedded in an iframe the
+   form has to be visible without scrolling. */
 .landing__hero {
   flex: 0 0 auto;
-  min-height: 42vh;
   display: flex;
   flex-direction: column;
   background: var(--orange);
-  padding: 0 1rem 0.5rem;
+  padding: 0 1rem;
 }
 
 .landing__panel {
   flex: 1 1 auto;
   background: var(--navy);
   color: #fff;
-  padding: 1.75rem 1rem 2.5rem;
+  padding: 1.25rem 1rem 1.5rem;
 }
 
 /* ---------- Brand bar ---------- */
@@ -868,7 +835,7 @@ body.player-mode .app-main {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.85rem 0 0.25rem;
+  padding: 0.4rem 0;
 }
 .brandbar__mark { display: flex; align-items: center; gap: 0.5rem; }
 .brandbar__logo { width: 32px; height: 32px; display: block; }
@@ -903,20 +870,6 @@ body.player-mode .app-main {
   stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-/* ---------- Hero illustration ---------- */
-
-.hero-art {
-  flex: 1 1 auto;
-  display: grid;
-  place-items: end center;
-  min-height: 0;
-}
-.hero-art svg {
-  width: min(100%, 22rem);
-  height: auto;
-  display: block;
 }
 
 /* ---------- Panel copy ---------- */
@@ -1008,28 +961,6 @@ body.player-mode .app-main {
 
 .lfield__input option { color: #fff; background: var(--navy-soft); }
 
-/* ---------- Quick-check toggle ---------- */
-
-.ltoggle {
-  display: flex;
-  gap: 0.7rem;
-  align-items: flex-start;
-  padding: 0.85rem 1rem;
-  background: var(--navy-soft);
-  border: 1px solid var(--navy-line);
-  border-radius: 12px;
-  cursor: pointer;
-}
-.ltoggle input { margin-top: 0.2rem; flex: none; accent-color: var(--mint); }
-.ltoggle__text { font-size: 14px; color: #fff; }
-.ltoggle__text small {
-  display: block;
-  margin-top: 0.2rem;
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--muted);
-}
-
 /* ---------- Call to action ---------- */
 
 /*
@@ -1065,12 +996,6 @@ body.player-mode .app-main {
 
 .landing__panel .status { color: var(--muted); text-align: center; }
 .landing__panel .status--error { color: #ffb4a0; }
-.landing__panel .student-teach-link {
-  border-top-color: rgba(255, 255, 255, 0.12);
-  text-align: center;
-  color: var(--muted);
-}
-.landing__panel .student-teach-link a { color: var(--mint); }
 .landing__panel .panel {
   background: var(--navy-soft);
   border-color: var(--mint);
@@ -1091,7 +1016,6 @@ body.player-mode .app-main {
 
 /* Wider screens: the split still reads, the content just stops stretching. */
 @media (min-width: 46rem) {
-  .landing__hero { min-height: 38vh; padding-bottom: 1rem; }
   /* width:100% is load-bearing on .brandbar: it is a flex ITEM of the hero
      column, and an auto inline margin overrides the default stretch, so
      without it the bar shrinks to fit its contents and the icons bunch up
