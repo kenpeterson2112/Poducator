@@ -64,6 +64,16 @@ const CHAPTER_SCHEMA = {
   additionalProperties: false,
 };
 
+const CHAPTER_SCHEMA_NO_CHECKPOINT = {
+  type: 'object',
+  properties: {
+    lines: CHAPTER_SCHEMA.properties.lines,
+    summary: CHAPTER_SCHEMA.properties.summary,
+  },
+  required: ['lines', 'summary'],
+  additionalProperties: false,
+};
+
 /* ------------------------------------------------------------------ */
 /* Prompt building (pure)                                              */
 /* ------------------------------------------------------------------ */
@@ -87,13 +97,15 @@ function readingGuidance(gradeBand) {
  * @param {{lessonTitle: string, source: string, gradeBand: string,
  *          chapter: import('./objectives.js').PlannedChapter,
  *          priorSummary: string, chapterIndex: number, chapterTotal: number,
- *          lastCheckpoint?: {objectiveText: string, outcome: string}|null}} input
+ *          lastCheckpoint?: {objectiveText: string, outcome: string}|null,
+ *          withCheckpoint?: boolean}} input  withCheckpoint=false writes a chapter with no
+ *          mid-lesson question (student mode): no checkpoint rules and no checkpoint object.
  * @returns {{system: string, messages: Array<{role: string, content: Array<{type: string, text: string, cache_control?: Object}>}>}}
  */
 export function buildChapterPrompt(input) {
   const {
     lessonTitle, source, gradeBand, chapter,
-    priorSummary, chapterIndex, chapterTotal, lastCheckpoint,
+    priorSummary, chapterIndex, chapterTotal, lastCheckpoint, withCheckpoint = true,
   } = input;
   const isLast = chapterIndex === chapterTotal - 1;
   const depth = chapter.depth ?? CHAPTER_SHAPE;
@@ -118,20 +130,27 @@ export function buildChapterPrompt(input) {
       'question a confused student would ask, or try an explanation and get part of it wrong so ' +
       'Host A can correct it kindly.',
     '',
-    '- The FINAL 3 exchanges are the CHECKPOINT, written fully in character:',
-    '  - Host A asks ONE comprehension question about this chapter\'s expectation, out loud, as a ' +
-      'real question a host would ask — never "please select an option below".',
-    '  - Then Host B riffs for 2-4 sentences: thinking out loud, narrowing it down, saying which ' +
-      'part they found hardest. This riff is the answer window — it must never sound like the show ' +
-      'is waiting on the listener, and it must not give the answer away.',
-    `- The "checkpoint" object mirrors that spoken question for the UI: "prompt" is the question, ` +
-      `"choices" is exactly ${ASSESSMENT.choicesPerItem} short options, "correctIndex" is 0-based, ` +
-      '"explanation" is a short why.',
-    '- Each wrong checkpoint choice must encode a mistake a student actually makes about THIS ' +
-      'expectation. A throwaway option wastes the check — the wrong answer is the useful signal.',
-    '- "spokenAnswer" is what Host A says aloud if the listener never answers: it reveals and ' +
-      'explains the answer conversationally, in Host A\'s voice, and moves the show along. Two or ' +
-      'three sentences. It must read naturally after Host B\'s riff.',
+    ...(withCheckpoint
+      ? [
+          '- The FINAL 3 exchanges are the CHECKPOINT, written fully in character:',
+          '  - Host A asks ONE comprehension question about this chapter\'s expectation, out loud, as a ' +
+            'real question a host would ask — never "please select an option below".',
+          '  - Then Host B riffs for 2-4 sentences: thinking out loud, narrowing it down, saying which ' +
+            'part they found hardest. This riff is the answer window — it must never sound like the show ' +
+            'is waiting on the listener, and it must not give the answer away.',
+          `- The "checkpoint" object mirrors that spoken question for the UI: "prompt" is the question, ` +
+            `"choices" is exactly ${ASSESSMENT.choicesPerItem} short options, "correctIndex" is 0-based, ` +
+            '"explanation" is a short why.',
+          '- Each wrong checkpoint choice must encode a mistake a student actually makes about THIS ' +
+            'expectation. A throwaway option wastes the check — the wrong answer is the useful signal.',
+          '- "spokenAnswer" is what Host A says aloud if the listener never answers: it reveals and ' +
+            'explains the answer conversationally, in Host A\'s voice, and moves the show along. Two or ' +
+            'three sentences. It must read naturally after Host B\'s riff.',
+        ]
+      : [
+          '- Do NOT ask the listener a quiz question. End the chapter with Host A briefly pulling ' +
+            'the idea together in a line or two, then a natural handoff to what comes next.',
+        ]),
     '- "summary" is one sentence on what this chapter taught, used as memory for the next chapter.',
   ].join('\n');
 
@@ -169,7 +188,10 @@ export function buildChapterPrompt(input) {
   ];
   if (isLast) {
     variableParts.push(
-      'This is the FINAL chapter: after the checkpoint, wrap the lesson up warmly in a line or two.'
+      withCheckpoint
+        ? 'This is the FINAL chapter: after the checkpoint, wrap the lesson up warmly in a line or two.'
+        : 'This is the FINAL chapter: wrap the lesson up warmly in a line or two, and tell the ' +
+          'listener a few quick questions are coming to see what stuck.'
     );
   }
 
@@ -357,7 +379,8 @@ async function callClaude(prompt, schema, opts) {
  * @returns {Promise<{lines: Array, checkpoint: Object|null, summary: string}>}
  */
 export async function chapter(input, opts) {
-  const text = await callClaude(buildChapterPrompt(input), CHAPTER_SCHEMA, opts);
+  const schema = input.withCheckpoint === false ? CHAPTER_SCHEMA_NO_CHECKPOINT : CHAPTER_SCHEMA;
+  const text = await callClaude(buildChapterPrompt(input), schema, opts);
   return parseChapterResponse(text, input.chapter.objectiveId);
 }
 
@@ -426,10 +449,9 @@ const PLAN_SCHEMA = {
         additionalProperties: false,
       },
     },
-    // Same shape as `diagnostic` — a closing check-in, not a second
-    // measurement. Never compared against the opener; nothing computes a
-    // score from it. See buildPlanPrompt's rules below for why the questions
-    // must differ from the opener's.
+    // Same shape as `diagnostic`: the closing questions, compared against the
+    // opener on the result screen. See buildPlanPrompt's rules below for why
+    // the questions must differ from the opener's.
     final: {
       type: 'array',
       items: {
@@ -463,11 +485,10 @@ const PLAN_SCHEMA = {
 
 /**
  * Build the planning prompt for a student-chosen topic.
- * @param {{topic: string, source: string, gradeBand: string,
- *          objectiveTarget: number, wantDiagnostic: boolean}} input
+ * @param {{topic: string, source: string, gradeBand: string, objectiveTarget: number}} input
  */
 export function buildPlanPrompt(input) {
-  const { topic, source, gradeBand, objectiveTarget, wantDiagnostic } = input;
+  const { topic, source, gradeBand, objectiveTarget } = input;
   const band = GRADE_BANDS[gradeBand] ?? GRADE_BANDS[DEFAULT_GRADE_BAND];
 
   const system = [
@@ -481,30 +502,25 @@ export function buildPlanPrompt(input) {
       'causes Y", never "Understand X". Give them ids OBJ-1, OBJ-2, and so on.',
     '- "short" is a few words for a heading; "text" is the full objective.',
     '- Objectives must be supported by the source material. Do not invent scope it cannot teach.',
-    ...(wantDiagnostic
-      ? [
-          '',
-          `- Write ${STUDENT_DIAGNOSTIC_ITEMS.min}-${STUDENT_DIAGNOSTIC_ITEMS.max} opening questions. ` +
-            'These do NOT grade the learner — they decide which objective the lesson teaches first, ' +
-            'so aim them at the ideas most likely to be misunderstood.',
-          `- Each question has exactly ${ASSESSMENT.choicesPerItem} choices. Do NOT add a "not sure" ` +
-            'choice; the app adds one.',
-          '- Open on a concrete situation, not a definition.',
-          '- Every wrong choice must encode a REAL misconception a learner actually holds, and carry ' +
-            'a short kebab-case "misconception" slug naming it. The correct choice omits the slug. ' +
-            'Throwaway distractors waste the question.',
-          '- "correctIndex" is the 0-based index of the right choice. Vary its position.',
-          '- "explanation" is one or two sentences for someone who just got it wrong. No blame.',
-        ]
-      : ['', '- Return an empty "diagnostic" array: this learner skipped the opening questions.']),
     '',
-    `- Write ${STUDENT_FINAL_ITEMS.min}-${STUDENT_FINAL_ITEMS.max} closing questions for "final", ` +
-      'covering the objectives the lesson actually taught. This is a practice check for the learner ' +
-      'to see what stuck, not a measurement — nobody sees the result but them, so write it that way: ' +
-      'straightforward, a little encouraging, no trick questions.',
+    `- Write exactly ${STUDENT_DIAGNOSTIC_ITEMS} opening questions for "diagnostic", asked before ` +
+      'the lesson. They decide which objective the lesson teaches first, and they are the "before" ' +
+      'half of a before-and-after check, so aim them at the ideas most likely to be misunderstood.',
+    `- Each question has exactly ${ASSESSMENT.choicesPerItem} choices. Do NOT add a "not sure" ` +
+      'choice; the app adds one.',
+    '- Open on a concrete situation, not a definition.',
+    '- Every wrong choice must encode a REAL misconception a learner actually holds, and carry ' +
+      'a short kebab-case "misconception" slug naming it. The correct choice omits the slug. ' +
+      'Throwaway distractors waste the question.',
+    '- "correctIndex" is the 0-based index of the right choice. Vary its position.',
+    '- "explanation" is one or two sentences for someone who just got it wrong. No blame.',
+    '',
+    `- Write exactly ${STUDENT_FINAL_ITEMS} closing questions for "final", asked after the lesson to ` +
+      'check whether understanding improved. Cover the same objectives the opening questions ' +
+      'targeted, at the same difficulty, so before and after are comparable; use any remaining ' +
+      'question on another objective the lesson taught. No trick questions.',
     '- Different questions from "diagnostic" — same concrete-scenario style, but not the same wording ' +
-      'or the same scenario, even when "diagnostic" is empty. Repeating a question verbatim reads as ' +
-      'a memory test, not a check-in.',
+      'or the same scenario. Repeating a question verbatim reads as a memory test, not a check.',
     `- Same shape as "diagnostic": exactly ${ASSESSMENT.choicesPerItem} choices, one correct, every ` +
       'wrong choice a real misconception with its slug. Do NOT add a "not sure" choice; the app adds one.',
   ].join('\n');
@@ -599,8 +615,8 @@ export function parsePlanResponse(raw) {
 }
 
 /**
- * Plan a student-mode lesson: objectives, the optional opening questions, and
- * a closing check-in — the same one call, so this never costs a second round
+ * Plan a student-mode lesson: objectives, the opening questions, and the
+ * closing questions — the same one call, so this never costs a second round
  * trip.
  * @returns {Promise<{objectives: Array, diagnostic: Array, final: Array}>}
  */

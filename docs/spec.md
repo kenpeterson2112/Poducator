@@ -214,28 +214,28 @@ one.
 The class code (Phase 2, `x-poducator-class` header, checked against the `lessons` table)
 identifies which lesson/roster a session belongs to. It is not an access control.
 
-### 7b. Student mode reports no score
+### 7b. Student mode shows before and after, not a grade
 
-Student mode (a learner typing their own topic) deliberately produces **no
-score**: no growth bars, no percentages, no pass/fail. Two properties make a
-score unsupportable, and dressing them up would be worse than the omission.
+Student mode (a learner typing their own topic) asks **two opening questions**
+(mandatory), teaches with **no mid-lesson checks**, and closes with **three
+questions**. The end screen shows how many were right before listening and
+after, and which ideas the closing questions say are worth another look.
 
-**No reliable baseline.** The opening questions are optional. A growth delta
-needs a before-measure, and most student sessions will not have one.
+That comparison is a quick signal for the learner, not a measurement:
 
 **No independent instrument.** Curriculum mode's items are hand-authored
 (`js/curriculum/items.js`), which is what resolved §11's conflict of interest.
 An arbitrary student topic has no bank, so the model writes the questions and
-then teaches the content — grading against its own test.
+then teaches the content. The plan prompt asks for closing questions on the
+same objectives as the opening ones, in a different scenario, so the two halves
+are comparable — but it is still the model checking its own lesson.
 
-**What the opening questions are for instead.** They *steer*. Answers feed the
-same gap profile (`js/objectives.js`), so the weakest objective is taught first
-and at greater depth. They are diagnostic, not assessment, and are never
-reported back to the learner as a result. That distinction is the design of this
-mode, not an implementation detail.
+**The opening questions also steer.** Answers feed the same gap profile
+(`js/objectives.js`), so the weakest objective is taught first and at greater
+depth.
 
-The end screen is therefore a **wrap-up**: what was covered, and which ideas are
-worth another look based on the mid-chapter checks. Framed as next steps.
+The result is shown only to the learner and framed as "a quick signal about
+what stuck — not a grade."
 
 Curriculum mode is unaffected and still scores, because there the opener is
 mandatory and the items were written by a human.

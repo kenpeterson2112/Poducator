@@ -121,13 +121,12 @@ export function scaleDepth(depth, scale) {
   return { minExchanges: clamp(depth.minExchanges), maxExchanges: clamp(depth.maxExchanges) };
 }
 
-/** How many questions the optional student-mode opener asks (spec: 2-3 tops). */
-export const STUDENT_DIAGNOSTIC_ITEMS = Object.freeze({ min: 2, max: 3 });
+/** How many questions every student lesson opens with. */
+export const STUDENT_DIAGNOSTIC_ITEMS = 2;
 
-/** How many questions the closing check-in asks — same shape as the opener,
- * a practice moment for the learner rather than a measurement, so it never
- * needs to be longer than the opener was. */
-export const STUDENT_FINAL_ITEMS = Object.freeze({ min: 2, max: 3 });
+/** How many questions every student lesson closes with — compared against the
+ * opener to show whether understanding improved after listening. */
+export const STUDENT_FINAL_ITEMS = 3;
 
 /**
  * How many closing exchanges form the checkpoint window (spec §6): Host A's
