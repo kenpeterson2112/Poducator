@@ -92,7 +92,7 @@ function main() {
     onPrevious,
     onRewindLines,
     onForwardLines,
-    onSetSpeed,
+    onCycleSpeed,
     onTogglePause,
     onJumpToChapter,
     onSelectionChange: refreshLessonLink,
@@ -113,7 +113,7 @@ function main() {
   } catch {
     /* private browsing, or no storage at all — the 1x default already set */
   }
-  ui.setActiveSpeedPill(rateMultiplier);
+  ui.setSpeed(rateMultiplier);
   tts.initVoices();
   // Every tap is a chance to unlock premium audio playback (tts.unlockAudio);
   // capture phase, so it runs inside the gesture before any handler awaits.
@@ -485,6 +485,26 @@ async function teachChapters() {
     run.currentChapterIndex = index;
     ui.renderChapterDots(index);
 
+    // A chapter with no question can't change anything about the next one —
+    // its outcome is always NOT_ASKED and the queue stays as planned — so
+    // write the next chapter while this one plays. Waiting for it to finish
+    // first left the listener in silence for a whole generation call at
+    // every chapter break.
+    const writeAhead = !generated.checkpoint && run.chapterQueue.length > 0;
+    if (writeAhead) {
+      run.priorSummary = [run.priorSummary, generated.summary].filter(Boolean).join(' ');
+      run.lastCheckpoint = { objectiveText: planned.objectiveText, outcome: CHECKPOINT_OUTCOME.NOT_ASKED };
+      pending = warm(
+        claude.chapter(
+          chapterInput(run.chapterQueue[0], index + 1, Math.max(plannedTotal, index + 2)),
+          run.credentials
+        )
+      );
+      // Awaited at the top of the next pass; this only keeps a failure that
+      // lands mid-playback from being reported as unhandled before then.
+      pending.catch(() => {});
+    }
+
     if (index === 0) {
       ui.markReadyGateReady(run.lessonTitle);
       await started; // blocks here until Start is pressed; settle() hides the gate itself
@@ -500,8 +520,10 @@ async function teachChapters() {
     }
     if (!isCurrentRun(run)) return false;
 
-    run.priorSummary = [run.priorSummary, generated.summary].filter(Boolean).join(' ');
-    run.lastCheckpoint = { objectiveText: planned.objectiveText, outcome };
+    if (!writeAhead) {
+      run.priorSummary = [run.priorSummary, generated.summary].filter(Boolean).join(' ');
+      run.lastCheckpoint = { objectiveText: planned.objectiveText, outcome };
+    }
     run.playedChapters.push({
       objectiveId: planned.objectiveId,
       objectiveShort: planned.objectiveShort,
@@ -538,12 +560,14 @@ async function teachChapters() {
         run.chapterQueue[0].objectiveShort,
         run.chapterQueue[0].objectiveId
       );
-      pending = warm(
-        claude.chapter(
-          chapterInput(run.chapterQueue[0], index, Math.max(plannedTotal, index + 1)),
-          run.credentials
-        )
-      );
+      if (!writeAhead) {
+        pending = warm(
+          claude.chapter(
+            chapterInput(run.chapterQueue[0], index, Math.max(plannedTotal, index + 1)),
+            run.credentials
+          )
+        );
+      }
     } else if (!isLast) {
       break;
     }
@@ -928,16 +952,22 @@ async function onStudentStart() {
   const run = state;
 
   try {
+    ui.setStudentStage('working');
     ui.setStudentStatus(`Looking up "${topic}"…`);
     const { candidates, needsConfirmation } = await sources.research(topic, { gradeBand });
     if (!isCurrentRun(run)) return;
 
     let chosen = candidates[0];
     if (needsConfirmation) {
+      ui.setStudentStage('deciding');
       ui.setStudentStatus('');
       chosen = await ui.showSourceConfirm(topic, candidates);
       if (!isCurrentRun(run)) return;
-      if (!chosen) return ui.setStudentStatus('No problem — reword it and try again.');
+      if (!chosen) {
+        ui.setStudentStage('form');
+        return ui.setStudentStatus('No problem — reword it and try again.');
+      }
+      ui.setStudentStage('working');
     }
 
     ui.setStudentStatus(`Reading up on "${chosen.title}"…`);
@@ -961,11 +991,13 @@ async function onStudentStart() {
     );
     if (!isCurrentRun(run)) return;
 
+    ui.setStudentStage('deciding');
     ui.setStudentStatus('');
     const confirmed = await ui.showPlanConfirm(chosen, planned.objectives);
     if (!isCurrentRun(run)) return;
     if (!confirmed) {
       ui.renderReferences([]);
+      ui.setStudentStage('form');
       return ui.setStudentStatus('No problem — reword the topic (more detail helps) and try again.');
     }
 
@@ -1284,20 +1316,21 @@ function onForwardLines() {
 }
 
 /**
- * Speed pill → update the device preference, then — if a chapter is live —
- * restart just the current line at the new rate. A zero-distance seek through
- * the exact same mechanism as rewind/forward, since an utterance's rate can't
- * change once speech.speak() has been called on it.
+ * Speed button → step to the next preset (wrapping 1.5x back to 0.75x),
+ * update the device preference, then — if a chapter is live — restart just
+ * the current line at the new rate. A zero-distance seek through the exact
+ * same mechanism as rewind/forward, since an utterance's rate can't change
+ * once speech.speak() has been called on it.
  */
-function onSetSpeed(rate) {
-  if (!SPEED_PRESETS.includes(rate)) return;
+function onCycleSpeed() {
+  const rate = SPEED_PRESETS[(SPEED_PRESETS.indexOf(rateMultiplier) + 1) % SPEED_PRESETS.length];
   rateMultiplier = rate;
   try {
     localStorage.setItem(SPEED_STORAGE_KEY, String(rate));
   } catch {
     /* private browsing, or no storage at all — the choice still applies this session */
   }
-  ui.setActiveSpeedPill(rate);
+  ui.setSpeed(rate);
 
   const run = state;
   if (!run || !run.currentLines || run.reviewing) return;
