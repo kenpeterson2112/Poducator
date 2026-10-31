@@ -488,7 +488,7 @@ const PLAN_SCHEMA = {
  * @param {{topic: string, source: string, gradeBand: string, objectiveTarget: number}} input
  */
 export function buildPlanPrompt(input) {
-  const { topic, source, gradeBand, objectiveTarget } = input;
+  const { topic, request, focus, source, gradeBand, objectiveTarget } = input;
   const band = GRADE_BANDS[gradeBand] ?? GRADE_BANDS[DEFAULT_GRADE_BAND];
 
   const system = [
@@ -502,6 +502,8 @@ export function buildPlanPrompt(input) {
       'causes Y", never "Understand X". Give them ids OBJ-1, OBJ-2, and so on.',
     '- "short" is a few words for a heading; "text" is the full objective.',
     '- Objectives must be supported by the source material. Do not invent scope it cannot teach.',
+    '- Aim the objectives at what the learner asked for, not at everything the source covers. If ' +
+      'they asked for a comparison, a debate or a connection, the objectives teach that.',
     '',
     `- Write exactly ${STUDENT_DIAGNOSTIC_ITEMS} opening questions for "diagnostic", asked before ` +
       'the lesson. They decide which objective the lesson teaches first, and they are the "before" ' +
@@ -527,6 +529,8 @@ export function buildPlanPrompt(input) {
 
   const user = [
     `Topic the learner asked for: ${topic}`,
+    ...(request && request !== topic ? [`In their words: ${request}`] : []),
+    ...(focus ? [`What they want to understand: ${focus}`] : []),
     '',
     '<source_material>',
     source,
@@ -623,4 +627,67 @@ export function parsePlanResponse(raw) {
 export async function plan(input, opts) {
   const text = await callClaude(buildPlanPrompt(input), PLAN_SCHEMA, opts);
   return parsePlanResponse(text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Interpreting a typed request                                        */
+/* ------------------------------------------------------------------ */
+
+/** How many encyclopedia articles one lesson may be grounded on. */
+export const MAX_LOOKUPS = 3;
+
+const INTERPRET_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    focus: { type: 'string' },
+    lookups: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['title', 'focus', 'lookups'],
+  additionalProperties: false,
+};
+
+/**
+ * Turn what a learner typed into encyclopedia lookups.
+ *
+ * Wikipedia search matches article titles, so a sentence like "the eliza vs
+ * parry chatbot argument" lands on whatever broad article shares the most
+ * words ("Turing test") rather than the two articles the learner meant. A
+ * small call up front names those articles instead, and says in one line what
+ * the learner is actually after so the plan can aim at it.
+ */
+export function buildInterpretPrompt(request) {
+  const system = [
+    'You turn a learner\'s request for a short audio lesson into English Wikipedia lookups.',
+    '',
+    'Rules:',
+    `- "lookups": 1 to ${MAX_LOOKUPS} Wikipedia article titles that together cover the request, ` +
+      'most important first. Use the exact title the article most likely has ("ELIZA", ' +
+      '"Photosynthesis", "French Revolution"), not a search phrase. One lookup when one article ' +
+      'covers it; more only when the request spans separate subjects (a comparison, a ' +
+      'relationship, an event between two things).',
+    '- "title": a short lesson title in plain words, a few words long.',
+    '- "focus": one sentence on what the learner wants to understand, in their terms. Keep any ' +
+      'angle they asked for (a comparison, a debate, a cause, a how-it-works).',
+    '- Fix spelling and expand obvious shorthand. Do not change what they asked about.',
+  ].join('\n');
+  return { system, messages: [{ role: 'user', content: `Request: ${request}` }] };
+}
+
+/**
+ * @returns {Promise<{title: string, focus: string, lookups: string[]}>}
+ */
+export async function interpret(request, opts) {
+  const raw = await callClaude(buildInterpretPrompt(request), INTERPRET_SCHEMA, opts);
+  const data = JSON.parse(raw);
+  const seen = new Set();
+  const lookups = (data.lookups ?? [])
+    .map((s) => String(s).trim())
+    .filter((s) => s && !seen.has(s.toLowerCase()) && seen.add(s.toLowerCase()))
+    .slice(0, MAX_LOOKUPS);
+  return {
+    title: String(data.title ?? '').trim() || request,
+    focus: String(data.focus ?? '').trim(),
+    lookups: lookups.length ? lookups : [request],
+  };
 }

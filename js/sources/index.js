@@ -90,6 +90,87 @@ export async function research(topic, opts = {}) {
 }
 
 /**
+ * Phase 1 when the request was interpreted into named articles first
+ * (claude.interpret). Each lookup is an article title the model expects to
+ * exist, so the exact page is tried before any search: a search for "PARRY"
+ * on Simple English, which has no such article, would otherwise hand back
+ * whatever page shares the word.
+ *
+ * Tries the reading-level host first and full Wikipedia second, then falls
+ * back to the old search path for a lookup no host has by that title. Lookups
+ * that find nothing are dropped; only all of them failing is an error.
+ *
+ * @param {string[]} lookups
+ * @param {{gradeBand?: string}} [opts]
+ * @returns {Promise<import('./mediawiki.js').Candidate[]>} One per lookup that
+ *   found something, in the lookups' order, without duplicates.
+ */
+export async function researchEach(lookups, opts = {}) {
+  const hosts = hostsFor(opts.gradeBand);
+
+  const picks = await Promise.all(
+    lookups.map(async (lookup) => {
+      for (const source of hosts) {
+        try {
+          const card = await mediawiki.fetchSummary(source, lookup);
+          if (card.isDisambiguation || !card.summary) continue;
+          return { title: lookup, ...card, sourceId: source.id, sourceLabel: source.label };
+        } catch {
+          /* no page by that title here — try the next host */
+        }
+      }
+      for (const source of hosts) {
+        const { candidates } = await mediawiki.findCandidates(source, lookup);
+        if (candidates.length) return candidates[0];
+      }
+      return null;
+    })
+  );
+
+  const seen = new Set();
+  const found = picks.filter((c) => c && !seen.has(c.url) && seen.add(c.url));
+  if (found.length === 0) {
+    throw new Error(`Couldn't find anything on "${lookups.join(', ')}" — try rewording it.`);
+  }
+  return found;
+}
+
+/**
+ * Phase 2 for several articles: each gets an equal share of the source
+ * budget. No instructional-wiki search here — the only query it could use is
+ * the combined lesson title, and a loose match on that is exactly the
+ * off-topic grounding this path exists to avoid.
+ * @param {import('./mediawiki.js').Candidate[]} candidates
+ * @param {string} lessonTitle
+ * @returns {Promise<LessonSource>}
+ */
+export async function buildEach(candidates, lessonTitle) {
+  if (candidates.length === 1) return build(candidates[0]);
+  const share = Math.floor(SOURCE_CHAR_LIMIT / candidates.length);
+
+  const bodies = await Promise.all(
+    candidates.map((c) =>
+      mediawiki
+        .fetchExtract(sourceById(c.sourceId) ?? sourceById('wikipedia'), c.title, share)
+        .catch(() => '')
+    )
+  );
+
+  const used = candidates.map((c, i) => ({
+    label: c.sourceLabel, title: c.title, url: c.url, text: bodies[i] || c.summary,
+  }));
+
+  return {
+    title: lessonTitle,
+    text: used
+      .map((e) => `Reference material (${e.label} — "${e.title}"):\n${e.text}`)
+      .join('\n\n')
+      .slice(0, SOURCE_CHAR_LIMIT),
+    refs: used.map((e) => ({ title: e.title, url: e.url, label: e.label })),
+  };
+}
+
+/**
  * Phase 2: build grounding material from the confirmed candidate.
  *
  * Unlike curriculum mode there is no `brief` to lean on, so the article body

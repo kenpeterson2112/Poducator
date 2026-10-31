@@ -953,36 +953,66 @@ async function onStudentStart() {
 
   try {
     ui.setStudentStage('working');
-    ui.setStudentStatus(`Looking up "${topic}"…`);
-    const { candidates, needsConfirmation } = await sources.research(topic, { gradeBand });
+    // What the learner typed is a request, not a search query: name the
+    // articles that cover it first (see claude.interpret). If that call
+    // fails for any reason but a rate limit, search for the typed words the
+    // way this always did — a slightly worse source beats no lesson.
+    ui.setStudentStatus('Working out what you\'re asking for…');
+    let request = null;
+    try {
+      request = await claude.interpret(topic, run.credentials);
+    } catch (err) {
+      if (err?.code === 'rate_limited') throw err;
+      console.warn('Could not interpret the request; searching for it as typed.', err);
+    }
     if (!isCurrentRun(run)) return;
 
-    let chosen = candidates[0];
-    if (needsConfirmation) {
-      ui.setStudentStage('deciding');
-      ui.setStudentStatus('');
-      chosen = await ui.showSourceConfirm(topic, candidates);
+    let chosen;
+    if (request) {
+      ui.setStudentStatus(`Looking up ${request.lookups.map((l) => `"${l}"`).join(', ')}…`);
+      chosen = await sources.researchEach(request.lookups, { gradeBand });
       if (!isCurrentRun(run)) return;
-      if (!chosen) {
-        ui.setStudentStage('form');
-        return ui.setStudentStatus('No problem — reword it and try again.');
+    } else {
+      ui.setStudentStatus(`Looking up "${topic}"…`);
+      const { candidates, needsConfirmation } = await sources.research(topic, { gradeBand });
+      if (!isCurrentRun(run)) return;
+
+      let pick = candidates[0];
+      if (needsConfirmation) {
+        ui.setStudentStage('deciding');
+        ui.setStudentStatus('');
+        pick = await ui.showSourceConfirm(topic, candidates);
+        if (!isCurrentRun(run)) return;
+        if (!pick) {
+          ui.setStudentStage('form');
+          return ui.setStudentStatus('No problem — reword it and try again.');
+        }
+        ui.setStudentStage('working');
       }
-      ui.setStudentStage('working');
+      chosen = [pick];
     }
 
-    ui.setStudentStatus(`Reading up on "${chosen.title}"…`);
-    const source = await sources.build(chosen);
+    // One article keeps its own title; several get the interpreted one
+    // ("ELIZA and PARRY"), since no single article title names the lesson.
+    const lessonTitle = chosen.length > 1 ? request.title : chosen[0].title;
+    const basis =
+      chosen.length > 1 ? { title: chosen.map((c) => c.title).join(' + ') } : chosen[0];
+
+    ui.setStudentStatus(`Reading up on ${chosen.map((c) => `"${c.title}"`).join(', ')}…`);
+    const source = await sources.buildEach(chosen, lessonTitle);
     if (!isCurrentRun(run)) return;
 
-    run.lessonTitle = chosen.title;
-    run.session.topic = chosen.title;
+    run.lessonTitle = lessonTitle;
+    run.session.topic = lessonTitle;
     run.session.refs = source.refs;
     ui.renderReferences(source.refs);
 
     ui.setStudentStatus('Working out what to cover…');
     const planned = await claude.plan(
       {
-        topic: chosen.title,
+        topic: lessonTitle,
+        request: topic,
+        focus: request?.focus ?? '',
         source: source.text,
         gradeBand,
         objectiveTarget: Math.min(plan.objectives, CHAPTER_BOUNDS.max),
@@ -993,7 +1023,7 @@ async function onStudentStart() {
 
     ui.setStudentStage('deciding');
     ui.setStudentStatus('');
-    const confirmed = await ui.showPlanConfirm(chosen, planned.objectives);
+    const confirmed = await ui.showPlanConfirm(basis, planned.objectives);
     if (!isCurrentRun(run)) return;
     if (!confirmed) {
       ui.renderReferences([]);
