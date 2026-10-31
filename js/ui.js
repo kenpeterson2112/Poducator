@@ -151,7 +151,12 @@ export function showView(name) {
   // CSS). The footer would sit below that screen where nobody can reach it.
   const player = name === 'player';
   document.body.classList.toggle('player-mode', player);
-  if (els.appFooter) els.appFooter.hidden = landing || player;
+  // The questions get the same trimmed header as the player, so moving from
+  // one to the other doesn't make the page jump, and a question with all its
+  // answers fits on one screen without scrolling.
+  const quiz = name === 'assess';
+  document.body.classList.toggle('quiz-mode', quiz);
+  if (els.appFooter) els.appFooter.hidden = landing || player || quiz;
 }
 
 /**
