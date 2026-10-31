@@ -69,7 +69,6 @@ export function init() {
   els.quizPrompt = byId('quiz-prompt');
   els.quizChoices = byId('quiz-choices');
   els.quizFeedback = byId('quiz-feedback');
-  els.quizNote = byId('quiz-note');
 
   els.topicTitle = byId('topic-title');
   els.chapterProgress = byId('chapter-progress');
@@ -355,7 +354,6 @@ export function askItem(item, meta) {
     els.quizPrompt.textContent = item.prompt;
     els.quizFeedback.hidden = true;
     els.quizFeedback.textContent = '';
-    els.quizNote.hidden = false;
 
     let settled = false;
 
@@ -401,8 +399,6 @@ export function askItem(item, meta) {
         : `Not quite. ${item.explanation}`;
       els.quizFeedback.className = `feedback ${correct ? 'feedback--ok' : 'feedback--no'}`;
       els.quizFeedback.hidden = false;
-      // The feedback takes the note's place rather than stacking under it.
-      els.quizNote.hidden = true;
 
       // Longer on a miss: the explanation is the teaching, and these items
       // carry a reason clause that takes a beat to read.

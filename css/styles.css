@@ -303,7 +303,8 @@ body {
   .modal,
   .ready-gate,
   .modal__card,
-  .ready-gate__card { animation: none; }
+  .ready-gate__card,
+  #quiz-feedback { animation: none; }
   .wave span { animation: none; transform: scaleY(0.6); }
 }
 
@@ -465,6 +466,21 @@ body {
 }
 .feedback--ok { background: var(--accent-soft); }
 .feedback--no { background: var(--warn-soft); }
+/* Closing-question feedback floats over the bottom of the screen instead of
+   joining the page, so it never pushes the question past the fold or moves
+   anything while it's up. */
+#quiz-feedback {
+  position: fixed;
+  left: 50%;
+  bottom: 0.75rem;
+  z-index: 15;
+  width: min(calc(100% - 1.5rem), calc(var(--measure) - 1rem));
+  margin: 0;
+  transform: translateX(-50%);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  animation: fade-in 0.2s ease-out;
+}
+
 
 .chapter-badge {
   flex: none;
