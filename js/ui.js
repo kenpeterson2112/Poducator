@@ -80,7 +80,7 @@ export function init() {
   els.rewindBtn = byId('rewind-btn');
   els.forwardBtn = byId('forward-btn');
   els.pauseBtn = byId('pause-btn');
-  els.speedPills = Array.from(document.querySelectorAll('.speed-pill'));
+  els.speedBtn = byId('speed-btn');
 
   els.checkpointPanel = byId('checkpoint-panel');
   els.checkpointPrompt = byId('checkpoint-prompt');
@@ -105,6 +105,7 @@ export function init() {
   els.studentLength = byId('student-length');
   els.studentGrade = byId('student-grade');
   els.studentStatus = byId('student-status');
+  els.studentWorking = byId('student-working');
   els.confirmPanel = byId('confirm-panel');
   els.confirmPrompt = byId('confirm-prompt');
   els.confirmOptions = byId('confirm-options');
@@ -142,6 +143,7 @@ export function showView(name) {
   // The landing page is full-bleed and carries its own brand header, so the
   // shared chrome steps out of its way rather than doubling up.
   const landing = name === 'student';
+  if (landing) setStudentStage('form');
   els.appMain?.classList.toggle('app-main--bleed', landing);
   if (els.appHeader) els.appHeader.hidden = landing;
   // The player is a fixed-height screen: only its transcript window scrolls,
@@ -432,10 +434,12 @@ function setNowPlaying(lessonTitle, chapterText) {
   }
 }
 
-/** Flip the Pause/Play button to match the lesson's state. */
+/** Flip the Pause/Play button to match the lesson's state. The icon swap is CSS, off aria-pressed. */
 export function setPaused(paused) {
   if (!els.pauseBtn) return;
-  els.pauseBtn.textContent = paused ? 'Play' : 'Pause';
+  const label = paused ? 'Play' : 'Pause';
+  els.pauseBtn.setAttribute('aria-label', label);
+  els.pauseBtn.title = label;
   els.pauseBtn.setAttribute('aria-pressed', String(paused));
 }
 
@@ -466,11 +470,11 @@ export function renderChapterDots(current) {
   els.chapterDots.replaceChildren(...dots);
 }
 
-/** Highlight whichever speed pill matches the listener's chosen rate. */
-export function setActiveSpeedPill(rate) {
-  for (const btn of els.speedPills ?? []) {
-    btn.classList.toggle('speed-pill--active', Number(btn.dataset.rate) === rate);
-  }
+/** Show the listener's chosen rate on the speed button. */
+export function setSpeed(rate) {
+  if (!els.speedBtn) return;
+  els.speedBtn.textContent = `${rate}x`;
+  els.speedBtn.setAttribute('aria-label', `Playback speed ${rate}x — tap to change`);
 }
 
 export function clearTranscript() {
@@ -844,6 +848,20 @@ export function readStudent() {
   };
 }
 
+/**
+ * What the start screen shows below its heading:
+ *   'form'      the topic form
+ *   'working'   the waveform animation, while the topic is looked up and planned
+ *   'deciding'  neither — a "which did you mean" panel or the plan modal is up
+ * Hiding the form once a lesson is under way keeps the screen short enough to
+ * stay above the fold, which matters when the app is embedded in an iframe.
+ * @param {'form'|'working'|'deciding'} stage
+ */
+export function setStudentStage(stage) {
+  els.studentForm.hidden = stage !== 'form';
+  els.studentWorking.hidden = stage !== 'working';
+}
+
 export function setStudentStatus(message, isError = false) {
   els.studentStatus.textContent = message;
   els.studentStatus.classList.toggle('status--error', isError);
@@ -1197,9 +1215,7 @@ export function bindHandlers(handlers) {
   els.rewindBtn?.addEventListener('click', () => handlers.onRewindLines?.());
   els.forwardBtn?.addEventListener('click', () => handlers.onForwardLines?.());
   els.pauseBtn?.addEventListener('click', () => handlers.onTogglePause?.());
-  for (const btn of els.speedPills ?? []) {
-    btn.addEventListener('click', () => handlers.onSetSpeed?.(Number(btn.dataset.rate)));
-  }
+  els.speedBtn?.addEventListener('click', () => handlers.onCycleSpeed?.());
 }
 
 /**

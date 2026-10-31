@@ -158,18 +158,11 @@
         </button>
       </aside>
 
-      <!-- Shown after the outline is drafted and before any chapter is written,
-           so a lesson that misread the topic costs one cheap planning call, not
-           a whole podcast. -->
-      <aside id="plan-panel" class="panel" aria-labelledby="plan-heading" hidden>
-        <h3 id="plan-heading" class="panel__heading">Here's the plan — is this what you meant?</h3>
-        <p id="plan-source" class="plan__source"></p>
-        <ol id="plan-outline" class="plan__outline"></ol>
-        <div class="panel__actions">
-          <button type="button" class="btn" id="plan-reject-btn">Not what I meant</button>
-          <button type="button" class="btn btn--primary" id="plan-accept-btn">Looks right — make it</button>
-        </div>
-      </aside>
+      <!-- Shown while the topic is looked up and the plan is drafted, in place of
+           the form, so the screen stays short enough to sit above the fold. -->
+      <div id="student-working" class="wave wave--working" aria-hidden="true" hidden>
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
 
       <p id="student-status" class="status" role="status" aria-live="polite"></p>
 
@@ -180,6 +173,23 @@
         Poducator uses AI and can make mistakes. It's a study aid — not a
         substitute for your teacher or your textbook.
       </p>
+    </div>
+
+    <!-- "Confirm the plan": shown after the outline is drafted and before any
+         chapter is written, so a lesson that misread the topic costs one cheap
+         planning call, not a whole podcast. A modal over the landing page so it
+         is always on screen, including in a short iframe. -->
+    <div id="plan-panel" class="modal" hidden>
+      <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="plan-heading">
+        <p class="modal__eyebrow">Confirm the plan</p>
+        <h3 id="plan-heading" class="modal__title">Is this what you meant?</h3>
+        <p id="plan-source" class="plan__source"></p>
+        <ol id="plan-outline" class="plan__outline"></ol>
+        <div class="panel__actions">
+          <button type="button" class="btn" id="plan-reject-btn">Not what I meant</button>
+          <button type="button" class="btn btn--primary" id="plan-accept-btn">Looks right — make it</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -333,7 +343,9 @@
       <div class="ready-gate__card" role="status" aria-live="polite">
         <p class="ready-gate__eyebrow" id="ready-gate-eyebrow">Building your podcast…</p>
         <h2 class="ready-gate__title" id="ready-gate-title"></h2>
-        <div class="ready-gate__spinner" id="ready-gate-spinner" aria-hidden="true"></div>
+        <div class="wave ready-gate__wave" id="ready-gate-spinner" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
         <button type="button" class="cta ready-gate__start" id="ready-gate-start-btn" hidden>
           Start listening
         </button>
@@ -380,20 +392,26 @@
         <p id="checkpoint-note" class="panel__note"></p>
       </aside>
 
-      <div class="player-controls">
-        <div class="transport-group" role="group" aria-label="Chapter navigation">
-          <button type="button" class="btn" id="prev-btn">Previous</button>
-          <button type="button" class="btn" id="rewind-btn">Back a few lines</button>
-          <button type="button" class="btn" id="pause-btn" aria-pressed="false">Pause</button>
-          <button type="button" class="btn" id="forward-btn">Ahead a few lines</button>
-          <button type="button" class="btn" id="skip-btn">Skip ahead</button>
-        </div>
-        <div class="speed-group" role="group" aria-label="Playback speed">
-          <button type="button" class="btn speed-pill" data-rate="0.75">0.75x</button>
-          <button type="button" class="btn speed-pill" data-rate="1">1x</button>
-          <button type="button" class="btn speed-pill" data-rate="1.25">1.25x</button>
-          <button type="button" class="btn speed-pill" data-rate="1.5">1.5x</button>
-        </div>
+      <!-- One row at any width: icon buttons (each named by aria-label and
+           title), and one speed button that cycles 0.75x → 1.5x. -->
+      <div class="player-controls" role="group" aria-label="Playback controls">
+        <button type="button" class="btn ctrl" id="prev-btn" aria-label="Previous chapter" title="Previous chapter">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14"/><path d="M19 5 9 12l10 7z"/></svg>
+        </button>
+        <button type="button" class="btn ctrl" id="rewind-btn" aria-label="Back a few lines" title="Back a few lines">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+        <button type="button" class="btn ctrl ctrl--main" id="pause-btn" aria-pressed="false" aria-label="Pause" title="Pause">
+          <svg class="ctrl__pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+          <svg class="ctrl__play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15L19 12z"/></svg>
+        </button>
+        <button type="button" class="btn ctrl" id="forward-btn" aria-label="Ahead a few lines" title="Ahead a few lines">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg>
+        </button>
+        <button type="button" class="btn ctrl" id="skip-btn" aria-label="Skip to the next chapter" title="Skip to the next chapter">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14"/><path d="M5 5l10 7-10 7z"/></svg>
+        </button>
+        <button type="button" class="btn ctrl ctrl--speed" id="speed-btn" aria-label="Playback speed 1x — tap to change" title="Playback speed">1x</button>
       </div>
     </div>
   </section>
