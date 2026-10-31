@@ -3,6 +3,8 @@
 A curriculum-tied podcast that **diagnoses what a learner already thinks, teaches the gaps, checks
 whether the teaching landed, and measures what moved.**
 
+AppLink https://kenpeterson2112.github.io/Poducator/ 
+
 An educator picks 1–3 curriculum expectations. Two AI hosts teach exactly those, as a short show.
 The lesson adapts: a three-question quiz up front decides what gets covered and how long each part
 runs, mid-chapter comprehension checks decide what gets retaught, and a wrap-up quiz measures
